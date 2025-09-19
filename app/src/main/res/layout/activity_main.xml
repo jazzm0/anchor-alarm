@@ -3,35 +3,74 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp"
-    android:fitsSystemWindows="true">
+    android:fitsSystemWindows="true"
+    android:padding="16dp">
 
     <TextView
         android:id="@+id/statusText"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
+        android:background="@drawable/status_background"
         android:padding="12dp"
         android:text="@string/anchor_not_set"
-        android:textSize="18sp"
-        android:background="@drawable/status_background"
         android:textColor="@android:color/black"
-        app:layout_constraintTop_toTopOf="parent"
+        android:textSize="11sp"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintTop_toTopOf="parent" />
 
-    <EditText
-        android:id="@+id/radiusInput"
+    <TextView
+        android:id="@+id/anchorDepthLabel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
+        android:text="@string/anchor_depth_label"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/statusText" />
+
+    <EditText
+        android:id="@+id/anchorDepthInput"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
         android:autofillHints="10"
-        android:hint="@string/enter_drift_radius_meters"
+        android:hint="@string/enter_anchor_depth"
         android:inputType="numberDecimal"
         android:padding="12dp"
-        app:layout_constraintTop_toBottomOf="@id/statusText"
+        android:textSize="11sp"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintTop_toBottomOf="@id/anchorDepthLabel" />
+
+    <TextView
+        android:id="@+id/chainLengthLabel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="@string/chain_length_label"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/anchorDepthInput" />
+
+    <EditText
+        android:id="@+id/chainLengthInput"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:autofillHints="50"
+        android:hint="@string/enter_chain_length"
+        android:inputType="numberDecimal"
+        android:padding="12dp"
+        android:textSize="11sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/chainLengthLabel" />
 
     <Button
         android:id="@+id/setAnchorButton"
@@ -40,9 +79,10 @@
         android:layout_marginTop="16dp"
         android:padding="12dp"
         android:text="@string/set_anchor"
-        app:layout_constraintTop_toBottomOf="@id/radiusInput"
+        android:textSize="11sp"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintTop_toBottomOf="@id/chainLengthInput" />
 
     <Button
         android:id="@+id/resetAnchorButton"
@@ -51,8 +91,9 @@
         android:layout_marginTop="16dp"
         android:padding="12dp"
         android:text="@string/reset_anchor"
-        app:layout_constraintTop_toBottomOf="@id/setAnchorButton"
+        android:textSize="11sp"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintTop_toBottomOf="@id/setAnchorButton" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

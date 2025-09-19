@@ -31,11 +31,14 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREFS_NAME = "AnchorPrefs";
     private static final String PREF_ANCHOR_LAT = "anchorLat";
     private static final String PREF_ANCHOR_LON = "anchorLon";
-    private static final String PREF_RADIUS = "radius";
+    private static final String PREF_ANCHOR_DEPTH = "anchorDepth";
+    private static final String PREF_CHAIN_LENGTH = "chainLength";
 
     private LocationManager locationManager;
     private Location anchorLocation;
     private Location currentLocation;
+    private float anchorDepth;
+    private float chainLength;
     private float driftRadius;
     private TextView statusText;
     private SharedPreferences prefs;
@@ -81,28 +84,37 @@ public class MainActivity extends AppCompatActivity {
 
         Button setAnchorButton = findViewById(R.id.setAnchorButton);
         Button resetAnchorButton = findViewById(R.id.resetAnchorButton);
-        EditText radiusInput = findViewById(R.id.radiusInput);
+        EditText anchorDepthInput = findViewById(R.id.anchorDepthInput);
+        EditText chainLengthInput = findViewById(R.id.chainLengthInput);
         statusText = findViewById(R.id.statusText);
 
         createNotificationChannel();
 
-        // Load saved anchor point and radius
+        // Load saved anchor point and parameters
         if (prefs.contains(PREF_ANCHOR_LAT) && prefs.contains(PREF_ANCHOR_LON)) {
             anchorLocation = new Location("");
             anchorLocation.setLatitude(prefs.getFloat(PREF_ANCHOR_LAT, 0));
             anchorLocation.setLongitude(prefs.getFloat(PREF_ANCHOR_LON, 0));
-            driftRadius = prefs.getFloat(PREF_RADIUS, 0);
-            // Initial display with placeholder values for precision and satellites
-            statusText.setText(getString(R.string.anchor_set_with_radius,
-                    anchorLocation.getLatitude(), anchorLocation.getLongitude(), driftRadius, 0.0f, 0));
+            anchorDepth = prefs.getFloat(PREF_ANCHOR_DEPTH, 0);
+            chainLength = prefs.getFloat(PREF_CHAIN_LENGTH, 0);
+            driftRadius = calculateDriftRadius(anchorDepth, chainLength);
+
+            // Show saved values in input fields
+            anchorDepthInput.setText(String.valueOf(anchorDepth));
+            chainLengthInput.setText(String.valueOf(chainLength));
+
+            // Update status display
+            updateStatusDisplay();
         }
 
         setAnchorButton.setOnClickListener(v -> {
-            if (radiusInput.getText().toString().isEmpty()) {
-                Toast.makeText(this, "Please enter a radius", Toast.LENGTH_SHORT).show();
+            if (anchorDepthInput.getText().toString().isEmpty() || chainLengthInput.getText().toString().isEmpty()) {
+                Toast.makeText(this, "Please enter both anchor depth and chain length", Toast.LENGTH_SHORT).show();
                 return;
             }
-            driftRadius = Float.parseFloat(radiusInput.getText().toString());
+            anchorDepth = Float.parseFloat(anchorDepthInput.getText().toString());
+            chainLength = Float.parseFloat(chainLengthInput.getText().toString());
+            driftRadius = calculateDriftRadius(anchorDepth, chainLength);
             checkLocationPermissionAndSetAnchor();
         });
 
@@ -159,9 +171,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateStatusDisplay() {
         if (!isNull(anchorLocation)) {
-            statusText.setText(getString(R.string.anchor_set_with_radius,
-                    anchorLocation.getLatitude(), anchorLocation.getLongitude(), driftRadius,
-                    locationAccuracy, satelliteCount));
+            // Display anchor info with depth, chain length, and calculated drift radius
+            String statusText = String.format(
+                    "Anchor Set\nLat: %.6f, Lon: %.6f\nDepth: %.1fm, Chain: %.1fm\nDrift Radius: %.1fm\nAccuracy: %.1fm, Satellites: %d",
+                    anchorLocation.getLatitude(), anchorLocation.getLongitude(),
+                    anchorDepth, chainLength, driftRadius,
+                    locationAccuracy, satelliteCount);
+            this.statusText.setText(statusText);
         } else if (!isNull(currentLocation)) {
             // Show current location status when no anchor is set
             statusText.setText(getString(R.string.current_location_status,
@@ -211,6 +227,26 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Calculate the safe drift radius based on anchor depth and chain length.
+     * Uses the nautical rule: safe swing radius = sqrt(chain_length² - depth²)
+     * This accounts for the catenary curve of the chain.
+     */
+    private float calculateDriftRadius(float depth, float chainLength) {
+        if (chainLength <= depth) {
+            //TODO: this is a serious problem in real life - warn user?
+            // If chain length is less than or equal to depth, use minimum safe radius
+            return Math.max(10.0f, chainLength * 0.5f);
+        }
+
+        // Calculate the horizontal distance using Pythagorean theorem
+        // This represents the maximum swing radius when the chain is fully extended
+        float horizontalDistance = (float) Math.sqrt((chainLength * chainLength) - (depth * depth));
+
+        // Add a safety margin (reduce by 20% for safety)
+        return horizontalDistance * 0.8f;
+    }
+
     private void setAnchorPoint() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -224,10 +260,10 @@ public class MainActivity extends AppCompatActivity {
             SharedPreferences.Editor editor = prefs.edit();
             editor.putFloat(PREF_ANCHOR_LAT, (float) location.getLatitude());
             editor.putFloat(PREF_ANCHOR_LON, (float) location.getLongitude());
-            editor.putFloat(PREF_RADIUS, driftRadius);
+            editor.putFloat(PREF_ANCHOR_DEPTH, anchorDepth);
+            editor.putFloat(PREF_CHAIN_LENGTH, chainLength);
             editor.apply();
-            statusText.setText(getString(R.string.anchor_set_with_radius,
-                    location.getLatitude(), location.getLongitude(), driftRadius, locationAccuracy, satelliteCount));
+            updateStatusDisplay();
             startLocationService();
         } else {
             Toast.makeText(this, "Unable to get location. Ensure GPS is enabled.", Toast.LENGTH_SHORT).show();

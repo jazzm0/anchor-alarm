@@ -1,9 +1,11 @@
 <resources>
     <string name="app_name">AnchorAlarm</string>
     <string name="anchor_not_set">Anchor not set</string>
-    <string name="anchor_set_with_radius">Anchor set at: %1$.6f, %2$.6f\nRadius: %3$.1f meters\nPrecision: %4$.1f meters\nSatellites: %5$d</string>
     <string name="current_location_status">Current location: %1$.6f, %2$.6f\nPrecision: %3$.1f meters\nSatellites: %4$d</string>
-    <string name="enter_drift_radius_meters">Enter drift radius (meters)</string>
     <string name="set_anchor">Set Anchor</string>
     <string name="reset_anchor">Reset Anchor</string>
+    <string name="anchor_depth_label">Anchor Depth (meters)</string>
+    <string name="enter_anchor_depth">Enter anchor depth (meters)</string>
+    <string name="chain_length_label">Chain Length (meters)</string>
+    <string name="enter_chain_length">Enter chain length (meters)</string>
 </resources>
