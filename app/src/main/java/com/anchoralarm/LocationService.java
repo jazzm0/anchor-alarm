@@ -1,5 +1,7 @@
 package com.anchoralarm;
 
+import static com.anchoralarm.MainActivity.ANCHOR_ALARM_CHANNEL;
+
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -52,9 +54,9 @@ public class LocationService extends Service {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
-        return new NotificationCompat.Builder(this, "ANCHOR_ALARM_CHANNEL")
+        return new NotificationCompat.Builder(this, ANCHOR_ALARM_CHANNEL)
                 .setContentTitle("Anchor Alarm Running")
-                .setContentText("Monitoring anchor position")
+                .setContentText("Monitoring boat position")
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
                 .setContentIntent(pendingIntent)
                 .build();
@@ -101,7 +103,7 @@ public class LocationService extends Service {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "ANCHOR_ALARM_CHANNEL")
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, ANCHOR_ALARM_CHANNEL)
                 .setContentTitle("Anchor Alarm")
                 .setContentText("Boat has drifted beyond set radius or GPS disabled!")
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)

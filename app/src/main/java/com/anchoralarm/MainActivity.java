@@ -28,6 +28,8 @@ import androidx.core.content.ContextCompat;
 
 public class MainActivity extends AppCompatActivity {
 
+    public static final String ANCHOR_ALARM_CHANNEL = "ANCHOR_ALARM_CHANNEL";
+
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 2;
     private static final String PREFS_NAME = "AnchorPrefs";
@@ -370,7 +372,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void createNotificationChannel() {
         NotificationChannel channel = new NotificationChannel(
-                "ANCHOR_ALARM_CHANNEL",
+                ANCHOR_ALARM_CHANNEL,
                 "Anchor Alarm",
                 NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("Notifications for anchor drift alerts");
