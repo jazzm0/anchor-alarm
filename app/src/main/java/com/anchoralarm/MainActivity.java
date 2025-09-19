@@ -133,6 +133,10 @@ public class MainActivity extends AppCompatActivity {
                 SharedPreferences.Editor editor = prefs.edit();
                 editor.clear();
                 editor.apply();
+
+                // Clear all alarm notifications
+                clearAllNotifications();
+
                 // Update status display - will show current location if available, otherwise "Anchor not set"
                 if (currentLocation != null) {
                     updateStatusDisplay();
@@ -206,7 +210,7 @@ public class MainActivity extends AppCompatActivity {
             String latDMS = convertToDMS(anchorLocation.getLatitude(), true);
             String lonDMS = convertToDMS(anchorLocation.getLongitude(), false);
             String statusText = String.format(ENGLISH,
-                    "Anchor Set\nlat: %s\tlong: %s\nDepth: %.1fm, Chain: %.1fm\nDrift Radius: %.1fm\nAccuracy: %.1fm, Satellites: %d",
+                    "Anchor Set\nlat: %s \tlong: %s\nDepth: %.1fm, Chain: %.1fm\nDrift Radius: %.1fm\nAccuracy: %.1fm, Satellites: %d",
                     latDMS, lonDMS,
                     anchorDepth, chainLength, driftRadius,
                     locationAccuracy, satelliteCount);
@@ -217,7 +221,7 @@ public class MainActivity extends AppCompatActivity {
             String latDMS = convertToDMS(currentLocation.getLatitude(), true);
             String lonDMS = convertToDMS(currentLocation.getLongitude(), false);
             String statusText = String.format(ENGLISH,
-                    "Current Location\n lat: %s\tlong: %s\nAccuracy: %.1fm, Satellites: %d",
+                    "Current Location\n lat: %s \tlong: %s\nAccuracy: %.1fm, Satellites: %d",
                     latDMS, lonDMS, locationAccuracy, satelliteCount);
             this.statusText.setText(statusText);
             hideSwoyRadiusVisualization();
@@ -424,6 +428,16 @@ public class MainActivity extends AppCompatActivity {
                             BACKGROUND_LOCATION_PERMISSION_REQUEST_CODE);
                 }
             }
+        }
+    }
+
+    /**
+     * Clear all notifications when anchor is reset
+     */
+    private void clearAllNotifications() {
+        NotificationManager notificationManager = getSystemService(NotificationManager.class);
+        if (notificationManager != null) {
+            notificationManager.cancelAll();
         }
     }
 
