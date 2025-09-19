@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Outer drift radius circle -->
+    <item>
+        <shape android:shape="oval">
+            <stroke
+                android:width="3dp"
+                android:color="#2D950E"
+                android:dashWidth="8dp"
+                android:dashGap="4dp" />
+            <solid android:color="#1AFF5722" />
+        </shape>
+    </item>
+
+    <!-- Inner anchor point -->
+    <item
+        android:width="12dp"
+        android:height="12dp"
+        android:gravity="center">
+        <shape android:shape="oval">
+            <solid android:color="#2196F3" />
+        </shape>
+    </item>
+
+    <!-- Anchor symbol at center -->
+    <item
+        android:width="8dp"
+        android:height="8dp"
+        android:gravity="center">
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFF" />
+        </shape>
+    </item>
+
+</layer-list>

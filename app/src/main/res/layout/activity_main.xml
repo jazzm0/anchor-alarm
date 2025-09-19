@@ -89,4 +89,15 @@
         app:layout_constraintTop_toBottomOf="@id/anchorDepthInput"
         app:layout_constraintWidth_percent="0.5" />
 
+    <View
+        android:id="@+id/swoyRadiusView"
+        android:layout_width="200dp"
+        android:layout_height="200dp"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/swoy_radius_circle"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/toggleAnchorButton" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -15,6 +15,8 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -42,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
     private float chainLength;
     private float driftRadius;
     private TextView statusText;
+    private View swoyRadiusView;
     private SharedPreferences prefs;
     private int satelliteCount = 0;
     private float locationAccuracy = 0.0f;
@@ -88,6 +91,7 @@ public class MainActivity extends AppCompatActivity {
         EditText anchorDepthInput = findViewById(R.id.anchorDepthInput);
         EditText chainLengthInput = findViewById(R.id.chainLengthInput);
         statusText = findViewById(R.id.statusText);
+        swoyRadiusView = findViewById(R.id.swoyRadiusView);
 
         createNotificationChannel();
 
@@ -128,6 +132,7 @@ public class MainActivity extends AppCompatActivity {
                     updateStatusDisplay();
                 } else {
                     statusText.setText(getString(R.string.anchor_not_set));
+                    hideSwoyRadiusVisualization();
                 }
                 updateButtonState(toggleAnchorButton);
                 Toast.makeText(this, "Anchor reset", Toast.LENGTH_SHORT).show();
@@ -194,6 +199,7 @@ public class MainActivity extends AppCompatActivity {
                     anchorDepth, chainLength, driftRadius,
                     locationAccuracy, satelliteCount);
             this.statusText.setText(statusText);
+            updateSwoyRadiusVisualization();
         } else if (!isNull(currentLocation)) {
             // Show current location status when no anchor is set
             String latDMS = convertToDMS(currentLocation.getLatitude(), true);
@@ -202,6 +208,7 @@ public class MainActivity extends AppCompatActivity {
                     "Current Location\n lat: %s\tlong: %s\nAccuracy: %.1fm, Satellites: %d",
                     latDMS, lonDMS, locationAccuracy, satelliteCount);
             this.statusText.setText(statusText);
+            hideSwoyRadiusVisualization();
         }
     }
 
@@ -226,7 +233,7 @@ public class MainActivity extends AppCompatActivity {
         int minutes = (int) minutesDecimal;
         double seconds = (minutesDecimal - minutes) * 60;
 
-        return String.format("%d°%02d'%05.2f\"%s", degrees, minutes, seconds, direction);
+        return String.format(ENGLISH, "%d°%02d'%05.2f\"%s", degrees, minutes, seconds, direction);
     }
 
     private void checkLocationPermissionAndSetAnchor(Button toggleButton) {
@@ -340,6 +347,49 @@ public class MainActivity extends AppCompatActivity {
     private void stopLocationService() {
         Intent intent = new Intent(this, LocationService.class);
         stopService(intent);
+    }
+
+    /**
+     * Update the swoy radius visualization based on the calculated drift radius
+     */
+    private void updateSwoyRadiusVisualization() {
+        if (swoyRadiusView != null && driftRadius > 0) {
+            // Show the visualization
+            swoyRadiusView.setVisibility(View.VISIBLE);
+
+            // Scale the view based on drift radius
+            // Use a logarithmic scale to handle varying radius sizes (10m to 100m+)
+            // Base size is 200dp, scale between 0.5x and 2.0x based on radius
+            float baseSize = 200f; // dp
+            float scaleFactor;
+
+            if (driftRadius <= 20f) {
+                // Small radius (10-20m): scale 0.5x to 1.0x
+                scaleFactor = 0.5f + (driftRadius - 10f) / 20f;
+            } else if (driftRadius <= 50f) {
+                // Medium radius (20-50m): scale 1.0x to 1.5x
+                scaleFactor = 1.0f + ((driftRadius - 20f) / 30f) * 0.5f;
+            } else {
+                // Large radius (50m+): scale 1.5x to 2.0x
+                scaleFactor = 1.5f + Math.min((driftRadius - 50f) / 50f, 1.0f) * 0.5f;
+            }
+
+            // Apply the scale
+            int newSize = (int) (baseSize * scaleFactor * getResources().getDisplayMetrics().density);
+            ViewGroup.LayoutParams params = swoyRadiusView.getLayoutParams();
+            params.width = newSize;
+            params.height = newSize;
+            swoyRadiusView.setLayoutParams(params);
+        }
+    }
+
+    /**
+     * Hide the swoy radius visualization when anchor is not set
+     */
+    private void hideSwoyRadiusVisualization() {
+        if (swoyRadiusView != null) {
+            swoyRadiusView.setVisibility(View.GONE);
+        }
     }
 
     private void createNotificationChannel() {
