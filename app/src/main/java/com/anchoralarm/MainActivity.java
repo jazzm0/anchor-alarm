@@ -253,6 +253,19 @@ public class MainActivity extends AppCompatActivity {
                 "Anchor Alarm",
                 NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("Notifications for anchor drift alerts");
+
+        // Configure sound for alarm notifications
+        android.net.Uri alarmSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM);
+        android.media.AudioAttributes audioAttributes = new android.media.AudioAttributes.Builder()
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                .build();
+        channel.setSound(alarmSound, audioAttributes);
+
+        // Enable vibration for alarm
+        channel.enableVibration(true);
+        channel.setVibrationPattern(new long[]{0, 1000, 500, 1000});
+
         NotificationManager manager = getSystemService(NotificationManager.class);
         manager.createNotificationChannel(channel);
     }
