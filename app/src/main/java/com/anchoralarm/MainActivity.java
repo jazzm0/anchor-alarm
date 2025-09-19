@@ -357,7 +357,7 @@ public class MainActivity extends AppCompatActivity {
         if (swoyRadiusView != null) {
             swoyRadiusView.setVisibility(View.VISIBLE);
             // Update the view with current position data
-            swoyRadiusView.updatePositions(anchorLocation, currentLocation, driftRadius);
+            swoyRadiusView.updatePositions(anchorLocation, currentLocation, driftRadius, locationAccuracy);
         }
     }
 

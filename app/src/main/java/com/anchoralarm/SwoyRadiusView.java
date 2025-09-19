@@ -1,10 +1,14 @@
 package com.anchoralarm;
 
+import static android.graphics.Typeface.BOLD;
+import static java.lang.Math.min;
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.DashPathEffect;
 import android.graphics.Paint;
+import android.graphics.Typeface;
 import android.location.Location;
 import android.util.AttributeSet;
 import android.view.View;
@@ -23,6 +27,7 @@ public class SwoyRadiusView extends View {
     private Location anchorLocation;
     private Location currentLocation;
     private float driftRadius;
+    private float locationAccuracy;
 
     private float boatX = 0.5f; // Relative position (0-1)
     private float boatY = 0.5f; // Relative position (0-1)
@@ -65,22 +70,25 @@ public class SwoyRadiusView extends View {
 
         // Boat paint (green)
         boatPaint = new Paint();
-        boatPaint.setColor(Color.parseColor("#4CAF50"));
-        boatPaint.setStyle(Paint.Style.FILL);
+        boatPaint.setColor(Color.parseColor("#4CAF50")); // This is already opaque
+        boatPaint.setStyle(Paint.Style.STROKE);
+        boatPaint.setStrokeWidth(4f);
         boatPaint.setAntiAlias(true);
 
         // Text paint
         textPaint = new Paint();
         textPaint.setColor(Color.parseColor("#333333"));
-        textPaint.setTextSize(11f);
+        textPaint.setTextSize(30f);
         textPaint.setAntiAlias(true);
+        textPaint.setTypeface(Typeface.create(Typeface.DEFAULT, BOLD));
         textPaint.setTextAlign(Paint.Align.CENTER);
     }
 
-    public void updatePositions(Location anchor, Location current, float radius) {
+    public void updatePositions(Location anchor, Location current, float radius, float accuracy) {
         this.anchorLocation = anchor;
         this.currentLocation = current;
         this.driftRadius = radius;
+        this.locationAccuracy = accuracy;
 
         if (anchor != null && current != null && radius > 0) {
             // Calculate relative position of boat to anchor
@@ -92,7 +100,7 @@ public class SwoyRadiusView extends View {
 
                 // Scale the distance relative to the drift radius
                 // If boat is at drift radius, it should be at circle edge (0.45 from center)
-                float normalizedDistance = Math.min(distance / radius, 1.0f) * 0.45f;
+                float normalizedDistance = min(distance / radius, 1.0f) * 0.45f;
 
                 // Convert polar to cartesian coordinates
                 // Center is at (0.5, 0.5), so we add the offset
@@ -114,7 +122,7 @@ public class SwoyRadiusView extends View {
 
         int width = getWidth();
         int height = getHeight();
-        int size = Math.min(width, height);
+        int size = min(width, height);
         float centerX = width / 2f;
         float centerY = height / 2f;
         float radius = (size - 40f) / 2f; // Leave 20px margin on each side
@@ -138,10 +146,10 @@ public class SwoyRadiusView extends View {
             float boatPixelX = width * boatX;
             float boatPixelY = height * boatY;
 
-            // Draw boat
-            canvas.drawCircle(boatPixelX, boatPixelY, 12f, boatPaint);
+            float boatRadius = min(radius / 2, locationAccuracy * 2);
+            canvas.drawCircle(boatPixelX, boatPixelY, boatRadius, boatPaint);
             canvas.drawCircle(boatPixelX, boatPixelY, 6f, new Paint() {{
-                setColor(Color.WHITE);
+                setColor(Color.YELLOW);
                 setStyle(Paint.Style.FILL);
                 setAntiAlias(true);
             }});
