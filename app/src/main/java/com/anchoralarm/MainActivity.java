@@ -53,7 +53,8 @@ public class MainActivity extends AppCompatActivity {
             anchorLocation.setLatitude(prefs.getFloat(PREF_ANCHOR_LAT, 0));
             anchorLocation.setLongitude(prefs.getFloat(PREF_ANCHOR_LON, 0));
             driftRadius = prefs.getFloat(PREF_RADIUS, 0);
-            statusText.setText("Anchor set at: " + anchorLocation.getLatitude() + ", " + anchorLocation.getLongitude() + "\nRadius: " + driftRadius + " meters");
+            statusText.setText(getString(R.string.anchor_set_with_radius, 
+                anchorLocation.getLatitude(), anchorLocation.getLongitude(), driftRadius));
         }
 
         setAnchorButton.setOnClickListener(v -> {
@@ -71,7 +72,7 @@ public class MainActivity extends AppCompatActivity {
             SharedPreferences.Editor editor = prefs.edit();
             editor.clear();
             editor.apply();
-            statusText.setText("Anchor not set");
+            statusText.setText(getString(R.string.anchor_not_set));
             Toast.makeText(this, "Anchor reset", Toast.LENGTH_SHORT).show();
         });
     }
@@ -112,7 +113,8 @@ public class MainActivity extends AppCompatActivity {
             editor.putFloat(PREF_ANCHOR_LON, (float) location.getLongitude());
             editor.putFloat(PREF_RADIUS, driftRadius);
             editor.apply();
-            statusText.setText("Anchor set at: " + location.getLatitude() + ", " + location.getLongitude() + "\nRadius: " + driftRadius + " meters");
+            statusText.setText(getString(R.string.anchor_set_with_radius, 
+                location.getLatitude(), location.getLongitude(), driftRadius));
             startLocationService();
         } else {
             Toast.makeText(this, "Unable to get location. Ensure GPS is enabled.", Toast.LENGTH_SHORT).show();
