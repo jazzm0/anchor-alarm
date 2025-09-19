@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">AnchorAlarm</string>
     <string name="anchor_not_set">Anchor not set</string>
-    <string name="anchor_set_with_radius">Anchor set at: %1$.6f, %2$.6f\nRadius: %3$.1f meters</string>
+    <string name="anchor_set_with_radius">Anchor set at: %1$.6f, %2$.6f\nRadius: %3$.1f meters\nPrecision: %4$.1f meters\nSatellites: %5$d</string>
     <string name="enter_drift_radius_meters">Enter drift radius (meters)</string>
     <string name="set_anchor">Set Anchor</string>
     <string name="reset_anchor">Reset Anchor</string>

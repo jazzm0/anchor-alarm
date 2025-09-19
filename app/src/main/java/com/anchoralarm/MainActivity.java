@@ -7,7 +7,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.location.GnssStatus;
 import android.location.Location;
+import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.widget.Button;
@@ -15,6 +17,7 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -28,9 +31,41 @@ public class MainActivity extends AppCompatActivity {
 
     private LocationManager locationManager;
     private Location anchorLocation;
+    private Location currentLocation;
     private float driftRadius;
     private TextView statusText;
     private SharedPreferences prefs;
+    private int satelliteCount = 0;
+    private float locationAccuracy = 0.0f;
+
+    private final LocationListener locationListener = new LocationListener() {
+        @Override
+        public void onLocationChanged(Location location) {
+            currentLocation = location;
+            locationAccuracy = location.hasAccuracy() ? location.getAccuracy() : 0.0f;
+            updateStatusDisplay();
+        }
+
+        @Override
+        public void onStatusChanged(String provider, int status, Bundle extras) {
+        }
+
+        @Override
+        public void onProviderEnabled(String provider) {
+        }
+
+        @Override
+        public void onProviderDisabled(String provider) {
+        }
+    };
+
+    private final GnssStatus.Callback gnssStatusCallback = new GnssStatus.Callback() {
+        @Override
+        public void onSatelliteStatusChanged(GnssStatus status) {
+            satelliteCount = status.getSatelliteCount();
+            updateStatusDisplay();
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,8 +88,9 @@ public class MainActivity extends AppCompatActivity {
             anchorLocation.setLatitude(prefs.getFloat(PREF_ANCHOR_LAT, 0));
             anchorLocation.setLongitude(prefs.getFloat(PREF_ANCHOR_LON, 0));
             driftRadius = prefs.getFloat(PREF_RADIUS, 0);
-            statusText.setText(getString(R.string.anchor_set_with_radius, 
-                anchorLocation.getLatitude(), anchorLocation.getLongitude(), driftRadius));
+            // Initial display with placeholder values for precision and satellites
+            statusText.setText(getString(R.string.anchor_set_with_radius,
+                    anchorLocation.getLatitude(), anchorLocation.getLongitude(), driftRadius, 0.0f, 0));
         }
 
         setAnchorButton.setOnClickListener(v -> {
@@ -75,6 +111,46 @@ public class MainActivity extends AppCompatActivity {
             statusText.setText(getString(R.string.anchor_not_set));
             Toast.makeText(this, "Anchor reset", Toast.LENGTH_SHORT).show();
         });
+
+        // Start location updates if permission is granted
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            startLocationUpdates();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            startLocationUpdates();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        stopLocationUpdates();
+    }
+
+    private void startLocationUpdates() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1, locationListener);
+        locationManager.registerGnssStatusCallback(gnssStatusCallback);
+    }
+
+    private void stopLocationUpdates() {
+        locationManager.removeUpdates(locationListener);
+        locationManager.unregisterGnssStatusCallback(gnssStatusCallback);
+    }
+
+    private void updateStatusDisplay() {
+        if (anchorLocation != null && currentLocation != null) {
+            statusText.setText(getString(R.string.anchor_set_with_radius,
+                    anchorLocation.getLatitude(), anchorLocation.getLongitude(), driftRadius,
+                    locationAccuracy, satelliteCount));
+        }
     }
 
     private void checkLocationPermissionAndSetAnchor() {
@@ -89,10 +165,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startLocationUpdates();
                 setAnchorPoint();
             } else {
                 Toast.makeText(this, "Location permission denied", Toast.LENGTH_SHORT).show();
@@ -108,13 +185,15 @@ public class MainActivity extends AppCompatActivity {
         Location location = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
         if (location != null) {
             anchorLocation = location;
+            currentLocation = location;
+            locationAccuracy = location.hasAccuracy() ? location.getAccuracy() : 0.0f;
             SharedPreferences.Editor editor = prefs.edit();
             editor.putFloat(PREF_ANCHOR_LAT, (float) location.getLatitude());
             editor.putFloat(PREF_ANCHOR_LON, (float) location.getLongitude());
             editor.putFloat(PREF_RADIUS, driftRadius);
             editor.apply();
-            statusText.setText(getString(R.string.anchor_set_with_radius, 
-                location.getLatitude(), location.getLongitude(), driftRadius));
+            statusText.setText(getString(R.string.anchor_set_with_radius,
+                    location.getLatitude(), location.getLongitude(), driftRadius, locationAccuracy, satelliteCount));
             startLocationService();
         } else {
             Toast.makeText(this, "Unable to get location. Ensure GPS is enabled.", Toast.LENGTH_SHORT).show();
