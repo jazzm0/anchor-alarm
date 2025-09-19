@@ -9,6 +9,10 @@ import android.location.Location;
 import android.util.AttributeSet;
 import android.view.View;
 
+import androidx.annotation.NonNull;
+
+import java.util.Locale;
+
 public class SwoyRadiusView extends View {
     private Paint circlePaint;
     private Paint fillPaint;
@@ -105,7 +109,7 @@ public class SwoyRadiusView extends View {
     }
 
     @Override
-    protected void onDraw(Canvas canvas) {
+    protected void onDraw(@NonNull Canvas canvas) {
         super.onDraw(canvas);
 
         int width = getWidth();
@@ -152,7 +156,7 @@ public class SwoyRadiusView extends View {
             // Draw distance text
             if (driftRadius > 0) {
                 float distance = anchorLocation.distanceTo(currentLocation);
-                String distanceText = String.format("%.1fm", distance);
+                String distanceText = String.format(Locale.ENGLISH, "%.1fm", distance);
                 canvas.drawText(distanceText, boatPixelX, boatPixelY + 30, textPaint);
             }
         }
