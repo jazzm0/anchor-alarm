@@ -1,5 +1,7 @@
 package com.anchoralarm;
 
+import static java.util.Objects.isNull;
+
 import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -23,7 +25,9 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 public class MainActivity extends AppCompatActivity {
+
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
+    private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 2;
     private static final String PREFS_NAME = "AnchorPrefs";
     private static final String PREF_ANCHOR_LAT = "anchorLat";
     private static final String PREF_ANCHOR_LON = "anchorLon";
@@ -108,9 +112,17 @@ public class MainActivity extends AppCompatActivity {
             SharedPreferences.Editor editor = prefs.edit();
             editor.clear();
             editor.apply();
-            statusText.setText(getString(R.string.anchor_not_set));
+            // Update status display - will show current location if available, otherwise "Anchor not set"
+            if (currentLocation != null) {
+                updateStatusDisplay();
+            } else {
+                statusText.setText(getString(R.string.anchor_not_set));
+            }
             Toast.makeText(this, "Anchor reset", Toast.LENGTH_SHORT).show();
         });
+
+        // Request notification permission on Android 13+
+        checkNotificationPermission();
 
         // Start location updates if permission is granted
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
@@ -146,9 +158,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateStatusDisplay() {
-        if (anchorLocation != null && currentLocation != null) {
+        if (!isNull(anchorLocation)) {
             statusText.setText(getString(R.string.anchor_set_with_radius,
                     anchorLocation.getLatitude(), anchorLocation.getLongitude(), driftRadius,
+                    locationAccuracy, satelliteCount));
+        } else if (!isNull(currentLocation)) {
+            // Show current location status when no anchor is set
+            statusText.setText(getString(R.string.current_location_status,
+                    currentLocation.getLatitude(), currentLocation.getLongitude(),
                     locationAccuracy, satelliteCount));
         }
     }
@@ -164,6 +181,17 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void checkNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                        NOTIFICATION_PERMISSION_REQUEST_CODE);
+            }
+        }
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -174,6 +202,12 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 Toast.makeText(this, "Location permission denied", Toast.LENGTH_SHORT).show();
             }
+        } else if (requestCode == NOTIFICATION_PERMISSION_REQUEST_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "Notification permission granted", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Notification permission denied. Alarms may not be visible.", Toast.LENGTH_LONG).show();
+            }
         }
     }
 
@@ -183,7 +217,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         Location location = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-        if (location != null) {
+        if (!isNull(location)) {
             anchorLocation = location;
             currentLocation = location;
             locationAccuracy = location.hasAccuracy() ? location.getAccuracy() : 0.0f;
