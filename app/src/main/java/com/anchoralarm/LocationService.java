@@ -12,6 +12,8 @@ import android.location.LocationManager;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.IBinder;
+
+import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 
 public class LocationService extends Service {
@@ -56,7 +58,7 @@ public class LocationService extends Service {
     private void startLocationUpdates() {
         locationListener = new LocationListener() {
             @Override
-            public void onLocationChanged(Location currentLocation) {
+            public void onLocationChanged(@NonNull Location currentLocation) {
                 float distance = currentLocation.distanceTo(anchorLocation);
                 if (distance > driftRadius) {
                     triggerAlarm();
@@ -66,9 +68,9 @@ public class LocationService extends Service {
             @Override
             public void onStatusChanged(String provider, int status, android.os.Bundle extras) {}
             @Override
-            public void onProviderEnabled(String provider) {}
+            public void onProviderEnabled(@NonNull String provider) {}
             @Override
-            public void onProviderDisabled(String provider) {
+            public void onProviderDisabled(@NonNull String provider) {
                 stopSelf();
                 triggerAlarm(); // Alert if GPS is disabled
             }
