@@ -16,6 +16,7 @@ import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.os.Vibrator;
 
 import androidx.annotation.NonNull;
@@ -28,6 +29,7 @@ public class LocationService extends Service {
     private float driftRadius;
     private MediaPlayer alarmMediaPlayer;
     private Vibrator vibrator;
+    private PowerManager.WakeLock wakeLock;
 
     @Override
     public void onCreate() {
@@ -45,9 +47,30 @@ public class LocationService extends Service {
         anchorLocation.setLatitude(anchorLat);
         anchorLocation.setLongitude(anchorLon);
 
+        // Acquire partial wake lock to ensure GPS stays active
+        acquireWakeLock();
+
         startForeground(1, buildForegroundNotification());
         startLocationUpdates();
         return START_STICKY;
+    }
+
+    private void acquireWakeLock() {
+        if (wakeLock == null || !wakeLock.isHeld()) {
+            PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+            wakeLock = powerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "AnchorAlarm::LocationWakeLock"
+            );
+            wakeLock.acquire(10 * 60 * 1000L /*10 minutes*/);
+        }
+    }
+
+    private void releaseWakeLock() {
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
+            wakeLock = null;
+        }
     }
 
     private Notification buildForegroundNotification() {
@@ -84,11 +107,21 @@ public class LocationService extends Service {
         };
 
         if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            // Request high-priority, frequent location updates for safety-critical app
             locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
-                    10000, // 10 seconds
-                    0, // No minimum distance
+                    5000, // 5 seconds - more frequent for anchor monitoring
+                    0, // No minimum distance - detect any movement
                     locationListener);
+
+            // Also request network provider as backup
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                        LocationManager.NETWORK_PROVIDER,
+                        10000, // 10 seconds for network provider
+                        0,
+                        locationListener);
+            }
         }
     }
 
@@ -194,6 +227,9 @@ public class LocationService extends Service {
         if (locationListener != null) {
             locationManager.removeUpdates(locationListener);
         }
+
+        // Release wake lock
+        releaseWakeLock();
 
         // Cleanup MediaPlayer and Vibrator
         if (alarmMediaPlayer != null) {

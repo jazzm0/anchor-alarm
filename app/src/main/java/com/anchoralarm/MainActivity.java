@@ -14,7 +14,11 @@ import android.location.GnssStatus;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -32,6 +36,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 2;
+    private static final int BACKGROUND_LOCATION_PERMISSION_REQUEST_CODE = 3;
     private static final String PREFS_NAME = "AnchorPrefs";
     private static final String PREF_ANCHOR_LAT = "anchorLat";
     private static final String PREF_ANCHOR_LON = "anchorLon";
@@ -155,6 +160,12 @@ public class MainActivity extends AppCompatActivity {
 
         // Request notification permission on Android 13+
         checkNotificationPermission();
+
+        // Request battery optimization exemption for reliable background operation
+        requestBatteryOptimizationExemption();
+
+        // Request background location permission for Android 10+
+        checkBackgroundLocationPermission();
 
         // Start location updates if permission is granted
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
@@ -283,6 +294,12 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 Toast.makeText(this, "Notification permission denied. Alarms may not be visible.", Toast.LENGTH_LONG).show();
             }
+        } else if (requestCode == BACKGROUND_LOCATION_PERMISSION_REQUEST_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "Background location permission granted. Anchor monitoring will work reliably in background.", Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "Background location denied. Anchor monitoring may stop when app is in background.", Toast.LENGTH_LONG).show();
+            }
         }
     }
 
@@ -367,6 +384,46 @@ public class MainActivity extends AppCompatActivity {
     private void hideSwoyRadiusVisualization() {
         if (swoyRadiusView != null) {
             swoyRadiusView.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * Request battery optimization exemption to ensure reliable background operation
+     */
+    private void requestBatteryOptimizationExemption() {
+        PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (!powerManager.isIgnoringBatteryOptimizations(getPackageName())) {
+            try {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+                Toast.makeText(this, "Please allow battery optimization exemption for reliable anchor monitoring", Toast.LENGTH_LONG).show();
+            } catch (Exception e) {
+                // Fallback to general battery optimization settings
+                try {
+                    Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                    startActivity(intent);
+                    Toast.makeText(this, "Please find Anchor Alarm in the list and disable battery optimization", Toast.LENGTH_LONG).show();
+                } catch (Exception ex) {
+                    // If all else fails, just inform the user
+                    Toast.makeText(this, "Please disable battery optimization for Anchor Alarm in device settings", Toast.LENGTH_LONG).show();
+                }
+            }
+        }
+    }
+
+    /**
+     * Request background location permission for Android 10+
+     */
+    private void checkBackgroundLocationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(this,
+                            new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION},
+                            BACKGROUND_LOCATION_PERMISSION_REQUEST_CODE);
+                }
+            }
         }
     }
 
