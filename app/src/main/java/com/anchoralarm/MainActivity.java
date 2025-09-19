@@ -44,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     private int satelliteCount = 0;
     private float locationAccuracy = 0.0f;
+    private boolean isLocationServiceRunning = false;
 
     private final LocationListener locationListener = new LocationListener() {
         @Override
@@ -82,8 +83,7 @@ public class MainActivity extends AppCompatActivity {
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
-        Button setAnchorButton = findViewById(R.id.setAnchorButton);
-        Button resetAnchorButton = findViewById(R.id.resetAnchorButton);
+        Button toggleAnchorButton = findViewById(R.id.toggleAnchorButton);
         EditText anchorDepthInput = findViewById(R.id.anchorDepthInput);
         EditText chainLengthInput = findViewById(R.id.chainLengthInput);
         statusText = findViewById(R.id.statusText);
@@ -103,35 +103,48 @@ public class MainActivity extends AppCompatActivity {
             anchorDepthInput.setText(String.valueOf(anchorDepth));
             chainLengthInput.setText(String.valueOf(chainLength));
 
+            // If anchor is set, service should be running
+            isLocationServiceRunning = true;
+
+            // Restart the location service with saved parameters
+            startLocationService();
+
             // Update status display
             updateStatusDisplay();
         }
 
-        setAnchorButton.setOnClickListener(v -> {
-            if (anchorDepthInput.getText().toString().isEmpty() || chainLengthInput.getText().toString().isEmpty()) {
-                Toast.makeText(this, "Please enter both anchor depth and chain length", Toast.LENGTH_SHORT).show();
-                return;
+        toggleAnchorButton.setOnClickListener(v -> {
+            if (isLocationServiceRunning) {
+                // Reset anchor
+                stopLocationService();
+                anchorLocation = null;
+                isLocationServiceRunning = false;
+                SharedPreferences.Editor editor = prefs.edit();
+                editor.clear();
+                editor.apply();
+                // Update status display - will show current location if available, otherwise "Anchor not set"
+                if (currentLocation != null) {
+                    updateStatusDisplay();
+                } else {
+                    statusText.setText(getString(R.string.anchor_not_set));
+                }
+                updateButtonState(toggleAnchorButton);
+                Toast.makeText(this, "Anchor reset", Toast.LENGTH_SHORT).show();
+            } else {
+                // Set anchor
+                if (anchorDepthInput.getText().toString().isEmpty() || chainLengthInput.getText().toString().isEmpty()) {
+                    Toast.makeText(this, "Please enter both anchor depth and chain length", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                anchorDepth = Float.parseFloat(anchorDepthInput.getText().toString());
+                chainLength = Float.parseFloat(chainLengthInput.getText().toString());
+                driftRadius = calculateDriftRadius(anchorDepth, chainLength);
+                checkLocationPermissionAndSetAnchor(toggleAnchorButton);
             }
-            anchorDepth = Float.parseFloat(anchorDepthInput.getText().toString());
-            chainLength = Float.parseFloat(chainLengthInput.getText().toString());
-            driftRadius = calculateDriftRadius(anchorDepth, chainLength);
-            checkLocationPermissionAndSetAnchor();
         });
 
-        resetAnchorButton.setOnClickListener(v -> {
-            stopLocationService();
-            anchorLocation = null;
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.clear();
-            editor.apply();
-            // Update status display - will show current location if available, otherwise "Anchor not set"
-            if (currentLocation != null) {
-                updateStatusDisplay();
-            } else {
-                statusText.setText(getString(R.string.anchor_not_set));
-            }
-            Toast.makeText(this, "Anchor reset", Toast.LENGTH_SHORT).show();
-        });
+        // Initialize button state
+        updateButtonState(toggleAnchorButton);
 
         // Request notification permission on Android 13+
         checkNotificationPermission();
@@ -186,14 +199,22 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void checkLocationPermissionAndSetAnchor() {
+    private void checkLocationPermissionAndSetAnchor(Button toggleButton) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this,
                     new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
                     LOCATION_PERMISSION_REQUEST_CODE);
         } else {
-            setAnchorPoint();
+            setAnchorPoint(toggleButton);
+        }
+    }
+
+    private void updateButtonState(Button toggleButton) {
+        if (isLocationServiceRunning) {
+            toggleButton.setText(getString(R.string.reset_anchor));
+        } else {
+            toggleButton.setText(getString(R.string.set_anchor));
         }
     }
 
@@ -247,7 +268,7 @@ public class MainActivity extends AppCompatActivity {
         return horizontalDistance * 0.8f;
     }
 
-    private void setAnchorPoint() {
+    private void setAnchorPoint(Button toggleButton) {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
             return;
@@ -265,9 +286,17 @@ public class MainActivity extends AppCompatActivity {
             editor.apply();
             updateStatusDisplay();
             startLocationService();
+            isLocationServiceRunning = true;
+            updateButtonState(toggleButton);
         } else {
             Toast.makeText(this, "Unable to get location. Ensure GPS is enabled.", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void setAnchorPoint() {
+        // Fallback method for permission callback - find button reference
+        Button toggleButton = findViewById(R.id.toggleAnchorButton);
+        setAnchorPoint(toggleButton);
     }
 
     private void startLocationService() {

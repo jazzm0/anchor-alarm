@@ -73,7 +73,7 @@
         app:layout_constraintTop_toBottomOf="@id/chainLengthLabel" />
 
     <Button
-        android:id="@+id/setAnchorButton"
+        android:id="@+id/toggleAnchorButton"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
@@ -83,17 +83,5 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/chainLengthInput" />
-
-    <Button
-        android:id="@+id/resetAnchorButton"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:padding="6dp"
-        android:text="@string/reset_anchor"
-        android:textSize="11sp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/setAnchorButton" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
