@@ -1,5 +1,6 @@
 package com.anchoralarm;
 
+import static java.util.Locale.ENGLISH;
 import static java.util.Objects.isNull;
 
 import android.Manifest;
@@ -59,11 +60,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onProviderEnabled(String provider) {
+        public void onProviderEnabled(@NonNull String provider) {
         }
 
         @Override
-        public void onProviderDisabled(String provider) {
+        public void onProviderDisabled(@NonNull String provider) {
         }
     };
 
@@ -185,18 +186,47 @@ public class MainActivity extends AppCompatActivity {
     private void updateStatusDisplay() {
         if (!isNull(anchorLocation)) {
             // Display anchor info with depth, chain length, and calculated drift radius
-            String statusText = String.format(
-                    "Anchor Set\nLat: %.6f, Lon: %.6f\nDepth: %.1fm, Chain: %.1fm\nDrift Radius: %.1fm\nAccuracy: %.1fm, Satellites: %d",
-                    anchorLocation.getLatitude(), anchorLocation.getLongitude(),
+            String latDMS = convertToDMS(anchorLocation.getLatitude(), true);
+            String lonDMS = convertToDMS(anchorLocation.getLongitude(), false);
+            String statusText = String.format(ENGLISH,
+                    "Anchor Set\nlat: %s\tlong: %s\nDepth: %.1fm, Chain: %.1fm\nDrift Radius: %.1fm\nAccuracy: %.1fm, Satellites: %d",
+                    latDMS, lonDMS,
                     anchorDepth, chainLength, driftRadius,
                     locationAccuracy, satelliteCount);
             this.statusText.setText(statusText);
         } else if (!isNull(currentLocation)) {
             // Show current location status when no anchor is set
-            statusText.setText(getString(R.string.current_location_status,
-                    currentLocation.getLatitude(), currentLocation.getLongitude(),
-                    locationAccuracy, satelliteCount));
+            String latDMS = convertToDMS(currentLocation.getLatitude(), true);
+            String lonDMS = convertToDMS(currentLocation.getLongitude(), false);
+            String statusText = String.format(ENGLISH,
+                    "Current Location\n lat: %s\tlong: %s\nAccuracy: %.1fm, Satellites: %d",
+                    latDMS, lonDMS, locationAccuracy, satelliteCount);
+            this.statusText.setText(statusText);
         }
+    }
+
+    /**
+     * Convert decimal degrees to degrees, minutes, seconds format
+     *
+     * @param coordinate The decimal degree coordinate
+     * @param isLatitude True for latitude (N/S), false for longitude (E/W)
+     * @return Formatted DMS string
+     */
+    private String convertToDMS(double coordinate, boolean isLatitude) {
+        String direction;
+        if (isLatitude) {
+            direction = coordinate >= 0 ? "N" : "S";
+        } else {
+            direction = coordinate >= 0 ? "E" : "W";
+        }
+
+        coordinate = Math.abs(coordinate);
+        int degrees = (int) coordinate;
+        double minutesDecimal = (coordinate - degrees) * 60;
+        int minutes = (int) minutesDecimal;
+        double seconds = (minutesDecimal - minutes) * 60;
+
+        return String.format("%d°%02d'%05.2f\"%s", degrees, minutes, seconds, direction);
     }
 
     private void checkLocationPermissionAndSetAnchor(Button toggleButton) {
@@ -230,7 +260,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
