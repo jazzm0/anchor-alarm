@@ -1,4 +1,3 @@
-
 package com.anchoralarm;
 
 import android.app.Notification;
@@ -66,9 +65,9 @@ public class LocationService extends Service {
             }
 
             @Override
-            public void onStatusChanged(String provider, int status, android.os.Bundle extras) {}
-            @Override
-            public void onProviderEnabled(@NonNull String provider) {}
+            public void onProviderEnabled(@NonNull String provider) {
+            }
+
             @Override
             public void onProviderDisabled(@NonNull String provider) {
                 stopSelf();
