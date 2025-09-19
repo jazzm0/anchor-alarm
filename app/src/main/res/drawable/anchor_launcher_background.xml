@@ -10,8 +10,8 @@
         <aapt:attr name="android:fillColor"
             xmlns:aapt="http://schemas.android.com/aapt">
             <gradient
-                android:startColor="#1565C0"
-                android:endColor="#0D47A1"
+                android:startColor="#3A96FF"
+                android:endColor="#01172F"
                 android:type="radial"
                 android:centerX="54"
                 android:centerY="54"
@@ -22,7 +22,7 @@
     <!-- Subtle wave pattern -->
     <path
         android:pathData="M0,70 Q27,60 54,70 T108,70 L108,108 L0,108 Z"
-        android:fillColor="#0D47A1"
+        android:fillColor="#00183A"
         android:fillAlpha="0.3" />
 
     <path
