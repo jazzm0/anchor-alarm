@@ -16,7 +16,6 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -350,36 +349,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Update the swoy radius visualization based on the calculated drift radius
+     * Show the swoy radius visualization when anchor is set
      */
     private void updateSwoyRadiusVisualization() {
-        if (swoyRadiusView != null && driftRadius > 0) {
-            // Show the visualization
+        if (swoyRadiusView != null) {
             swoyRadiusView.setVisibility(View.VISIBLE);
-
-            // Scale the view based on drift radius
-            // Use a logarithmic scale to handle varying radius sizes (10m to 100m+)
-            // Base size is 200dp, scale between 0.5x and 2.0x based on radius
-            float baseSize = 200f; // dp
-            float scaleFactor;
-
-            if (driftRadius <= 20f) {
-                // Small radius (10-20m): scale 0.5x to 1.0x
-                scaleFactor = 0.5f + (driftRadius - 10f) / 20f;
-            } else if (driftRadius <= 50f) {
-                // Medium radius (20-50m): scale 1.0x to 1.5x
-                scaleFactor = 1.0f + ((driftRadius - 20f) / 30f) * 0.5f;
-            } else {
-                // Large radius (50m+): scale 1.5x to 2.0x
-                scaleFactor = 1.5f + Math.min((driftRadius - 50f) / 50f, 1.0f) * 0.5f;
-            }
-
-            // Apply the scale
-            int newSize = (int) (baseSize * scaleFactor * getResources().getDisplayMetrics().density);
-            ViewGroup.LayoutParams params = swoyRadiusView.getLayoutParams();
-            params.width = newSize;
-            params.height = newSize;
-            swoyRadiusView.setLayoutParams(params);
         }
     }
 
