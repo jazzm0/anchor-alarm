@@ -43,7 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private float chainLength;
     private float driftRadius;
     private TextView statusText;
-    private View swoyRadiusView;
+    private SwoyRadiusView swoyRadiusView;
     private SharedPreferences prefs;
     private int satelliteCount = 0;
     private float locationAccuracy = 0.0f;
@@ -354,6 +354,8 @@ public class MainActivity extends AppCompatActivity {
     private void updateSwoyRadiusVisualization() {
         if (swoyRadiusView != null) {
             swoyRadiusView.setVisibility(View.VISIBLE);
+            // Update the view with current position data
+            swoyRadiusView.updatePositions(anchorLocation, currentLocation, driftRadius);
         }
     }
 

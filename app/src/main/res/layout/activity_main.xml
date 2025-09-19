@@ -89,12 +89,11 @@
         app:layout_constraintTop_toBottomOf="@id/anchorDepthInput"
         app:layout_constraintWidth_percent="0.5" />
 
-    <View
+    <com.anchoralarm.SwoyRadiusView
         android:id="@+id/swoyRadiusView"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:layout_margin="16dp"
-        android:background="@drawable/swoy_radius_circle"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintDimensionRatio="1:1"
