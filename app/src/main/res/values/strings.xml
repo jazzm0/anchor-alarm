@@ -1,8 +1,7 @@
 <resources>
     <string name="app_name">Anchor Alarm</string>
     <string name="anchor_not_set">Anchor not set</string>
-    <string name="current_location_status">Current location: %1$.6f, %2$.6f\nPrecision: %3$.1f meters\nSatellites: %4$d</string>
-    <string name="set_anchor">Set Anchor</string>
+        <string name="set_anchor">Set Anchor</string>
     <string name="reset_anchor">Reset Anchor</string>
     <string name="anchor_depth_label">Anchor Depth (meters)</string>
     <string name="enter_anchor_depth">Enter anchor depth (meters)</string>
