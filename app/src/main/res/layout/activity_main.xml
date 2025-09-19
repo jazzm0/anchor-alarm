@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:text="Anchor not set"
+        android:textSize="18sp" />
+
+    <EditText
+        android:id="@+id/radiusInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Enter drift radius (meters)"
+        android:inputType="numberDecimal"
+        android:padding="8dp" />
+
+    <Button
+        android:id="@+id/setAnchorButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:text="Set Anchor" />
+
+    <Button
+        android:id="@+id/resetAnchorButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:text="Reset Anchor" />
+</LinearLayout>
