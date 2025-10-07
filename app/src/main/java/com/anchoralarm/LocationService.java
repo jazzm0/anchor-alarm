@@ -1,6 +1,8 @@
 package com.anchoralarm;
 
 import static com.anchoralarm.MainActivity.ANCHOR_ALARM_CHANNEL;
+import static com.anchoralarm.MainActivity.INTENT_STOP_ALARM;
+import static java.util.Objects.isNull;
 
 import android.app.Notification;
 import android.app.NotificationManager;
@@ -23,6 +25,7 @@ import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 
 public class LocationService extends Service {
+
     private LocationManager locationManager;
     private LocationListener locationListener;
     private Location anchorLocation;
@@ -30,15 +33,27 @@ public class LocationService extends Service {
     private MediaPlayer alarmMediaPlayer;
     private Vibrator vibrator;
     private PowerManager.WakeLock wakeLock;
+    private android.os.Handler alarmHandler;
+    private Runnable alarmStopRunnable;
+    private Runnable vibrationStopRunnable;
+    private boolean isAlarmActive = false;
 
     @Override
     public void onCreate() {
         super.onCreate();
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        alarmHandler = new android.os.Handler();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // Check if this is a stop alarms command
+        if (!isNull(intent) && INTENT_STOP_ALARM.equals(intent.getAction())) {
+            stopAllAlarms();
+            isAlarmActive = false;
+            return START_NOT_STICKY;
+        }
+
         double anchorLat = intent.getDoubleExtra("anchorLat", 0);
         double anchorLon = intent.getDoubleExtra("anchorLon", 0);
         driftRadius = intent.getFloatExtra("radius", 0);
@@ -56,18 +71,18 @@ public class LocationService extends Service {
     }
 
     private void acquireWakeLock() {
-        if (wakeLock == null || !wakeLock.isHeld()) {
+        if (isNull(wakeLock) || !wakeLock.isHeld()) {
             PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
             wakeLock = powerManager.newWakeLock(
                     PowerManager.PARTIAL_WAKE_LOCK,
                     "AnchorAlarm::LocationWakeLock"
             );
-            wakeLock.acquire(10 * 60 * 1000L /*10 minutes*/);
+            wakeLock.acquire(24 * 60 * 60 * 1000L /*1 day*/);
         }
     }
 
     private void releaseWakeLock() {
-        if (wakeLock != null && wakeLock.isHeld()) {
+        if (!isNull(wakeLock) && wakeLock.isHeld()) {
             wakeLock.release();
             wakeLock = null;
         }
@@ -91,7 +106,16 @@ public class LocationService extends Service {
             public void onLocationChanged(@NonNull Location currentLocation) {
                 float distance = currentLocation.distanceTo(anchorLocation);
                 if (distance > driftRadius) {
-                    triggerAlarm();
+                    // Only trigger alarm if not already active
+                    if (!isAlarmActive) {
+                        triggerAlarm();
+                    }
+                } else {
+                    // Boat is back within safe radius - reset alarm state
+                    if (isAlarmActive) {
+                        stopAllAlarms();
+                        isAlarmActive = false;
+                    }
                 }
             }
 
@@ -102,7 +126,9 @@ public class LocationService extends Service {
             @Override
             public void onProviderDisabled(@NonNull String provider) {
                 stopSelf();
-                triggerAlarm(); // Alert if GPS is disabled
+                if (!isAlarmActive) {
+                    triggerAlarm();
+                }
             }
         };
 
@@ -126,6 +152,9 @@ public class LocationService extends Service {
     }
 
     private void triggerAlarm() {
+        // Set alarm as active to prevent retriggering
+        isAlarmActive = true;
+
         // Play alarm sound directly using MediaPlayer
         playAlarmSound();
 
@@ -153,21 +182,18 @@ public class LocationService extends Service {
     private void playAlarmSound() {
         try {
             // Stop any currently playing alarm
-            if (alarmMediaPlayer != null) {
-                alarmMediaPlayer.stop();
-                alarmMediaPlayer.release();
-            }
+            stopAlarmSound();
 
             // Get alarm sound URI, with fallbacks
             Uri alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-            if (alarmUri == null) {
+            if (isNull(alarmUri)) {
                 alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
             }
-            if (alarmUri == null) {
+            if (isNull(alarmUri)) {
                 alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
             }
 
-            if (alarmUri != null) {
+            if (!isNull(alarmUri)) {
                 alarmMediaPlayer = new MediaPlayer();
                 alarmMediaPlayer.setDataSource(this, alarmUri);
 
@@ -183,18 +209,19 @@ public class LocationService extends Service {
                 int maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM);
                 audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxVolume, 0);
 
-                alarmMediaPlayer.setLooping(true); // Loop the alarm sound
+                alarmMediaPlayer.setLooping(true);
                 alarmMediaPlayer.prepare();
                 alarmMediaPlayer.start();
 
-                // Stop alarm after 30 seconds to prevent infinite playing
-                new android.os.Handler().postDelayed(() -> {
-                    if (alarmMediaPlayer != null && alarmMediaPlayer.isPlaying()) {
-                        alarmMediaPlayer.stop();
-                        alarmMediaPlayer.release();
-                        alarmMediaPlayer = null;
-                    }
-                }, 30000);
+                // Stop alarm after 5 minutes seconds to prevent infinite playing
+                if (!isNull(alarmStopRunnable)) {
+                    alarmHandler.removeCallbacks(alarmStopRunnable);
+                }
+                alarmStopRunnable = () -> {
+                    stopAlarmSound();
+                    isAlarmActive = false; // Reset alarm state after automatic timeout
+                };
+                alarmHandler.postDelayed(alarmStopRunnable, 5 * 60 * 1000);
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -203,46 +230,104 @@ public class LocationService extends Service {
 
     private void triggerVibration() {
         try {
+            // Stop any current vibration first
+            stopVibration();
+
             vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
-            if (vibrator != null && vibrator.hasVibrator()) {
+            if (!isNull(vibrator) && vibrator.hasVibrator()) {
                 // Create vibration pattern: pause, vibrate, pause, vibrate...
                 long[] pattern = {0, 1000, 500, 1000, 500, 1000};
                 vibrator.vibrate(pattern, 0); // Repeat the pattern
 
                 // Stop vibration after 30 seconds
-                new android.os.Handler().postDelayed(() -> {
-                    if (vibrator != null) {
-                        vibrator.cancel();
-                    }
-                }, 30000);
+                if (!isNull(vibrationStopRunnable)) {
+                    alarmHandler.removeCallbacks(vibrationStopRunnable);
+                }
+                vibrationStopRunnable = this::stopVibration;
+                alarmHandler.postDelayed(vibrationStopRunnable, 30000);
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
+    /**
+     * Stop alarm sound and clean up MediaPlayer
+     */
+    private void stopAlarmSound() {
+        try {
+            // Cancel any pending alarm stop runnable
+            if (!isNull(alarmStopRunnable) && !isNull(alarmHandler)) {
+                alarmHandler.removeCallbacks(alarmStopRunnable);
+                alarmStopRunnable = null;
+            }
+
+            // Stop and release MediaPlayer
+            if (!isNull(alarmMediaPlayer)) {
+                if (alarmMediaPlayer.isPlaying()) {
+                    alarmMediaPlayer.stop();
+                }
+                alarmMediaPlayer.release();
+                alarmMediaPlayer = null;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            // Ensure MediaPlayer is nullified even if there's an exception
+            alarmMediaPlayer = null;
+        }
+    }
+
+    /**
+     * Stop vibration
+     */
+    private void stopVibration() {
+        try {
+            // Cancel any pending vibration stop runnable
+            if (!isNull(vibrationStopRunnable) && !isNull(alarmHandler)) {
+                alarmHandler.removeCallbacks(vibrationStopRunnable);
+                vibrationStopRunnable = null;
+            }
+
+            // Stop vibrator
+            if (!isNull(vibrator)) {
+                vibrator.cancel();
+                vibrator = null;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            // Ensure vibrator is nullified even if there's an exception
+            vibrator = null;
+        }
+    }
+
+    /**
+     * Stop all alarms (sound and vibration)
+     */
+    public void stopAllAlarms() {
+        stopAlarmSound();
+        stopVibration();
+    }
+
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (locationListener != null) {
+
+        // Stop all alarms immediately
+        stopAllAlarms();
+
+        // Remove location updates
+        if (!isNull(locationListener)) {
             locationManager.removeUpdates(locationListener);
+            locationListener = null;
         }
 
         // Release wake lock
         releaseWakeLock();
 
-        // Cleanup MediaPlayer and Vibrator
-        if (alarmMediaPlayer != null) {
-            if (alarmMediaPlayer.isPlaying()) {
-                alarmMediaPlayer.stop();
-            }
-            alarmMediaPlayer.release();
-            alarmMediaPlayer = null;
-        }
-
-        if (vibrator != null) {
-            vibrator.cancel();
-            vibrator = null;
+        // Clean up handler callbacks
+        if (!isNull(alarmHandler)) {
+            alarmHandler.removeCallbacksAndMessages(null);
+            alarmHandler = null;
         }
     }
 

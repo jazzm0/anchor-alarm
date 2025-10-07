@@ -33,6 +33,7 @@ import androidx.core.content.ContextCompat;
 public class MainActivity extends AppCompatActivity {
 
     public static final String ANCHOR_ALARM_CHANNEL = "ANCHOR_ALARM_CHANNEL";
+    public static final String INTENT_STOP_ALARM = "STOP_ALARMS";
 
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 2;
@@ -367,8 +368,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void stopLocationService() {
-        Intent intent = new Intent(this, LocationService.class);
-        stopService(intent);
+        Intent stopAlarmsIntent = new Intent(this, LocationService.class);
+        stopAlarmsIntent.setAction(INTENT_STOP_ALARM);
+        startService(stopAlarmsIntent);
+
+        new android.os.Handler().postDelayed(() -> {
+            Intent intent = new Intent(this, LocationService.class);
+            stopService(intent);
+        }, 100);
     }
 
     /**
