@@ -27,8 +27,6 @@ public class SwoyRadiusView extends View implements SensorEventListener {
     private Paint anchorPaint;
     private Paint boatPaint;
     private Paint textPaint;
-    private Paint northIndicatorPaint;
-    private Paint northTextPaint;
 
     private Location anchorLocation;
     private Location currentLocation;
@@ -100,21 +98,6 @@ public class SwoyRadiusView extends View implements SensorEventListener {
         textPaint.setAntiAlias(true);
         textPaint.setTypeface(Typeface.create(Typeface.DEFAULT, BOLD));
         textPaint.setTextAlign(Paint.Align.CENTER);
-
-        // North indicator paint (red)
-        northIndicatorPaint = new Paint();
-        northIndicatorPaint.setColor(Color.parseColor("#FF5722"));
-        northIndicatorPaint.setStyle(Paint.Style.FILL);
-        northIndicatorPaint.setStrokeWidth(8f);
-        northIndicatorPaint.setAntiAlias(true);
-
-        // Draw north indicator triangle
-        northTextPaint = new Paint();
-        northTextPaint.setColor(Color.parseColor("#FF5722"));
-        northTextPaint.setTextSize(24f);
-        northTextPaint.setAntiAlias(true);
-        northTextPaint.setTypeface(Typeface.create(Typeface.DEFAULT, BOLD));
-        northTextPaint.setTextAlign(Paint.Align.CENTER);
 
         // Initialize compass sensors
         sensorManager = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
@@ -230,20 +213,6 @@ public class SwoyRadiusView extends View implements SensorEventListener {
 
         // Draw dashed circle border
         canvas.drawCircle(centerX, centerY, radius, circlePaint);
-
-        // Draw north indicator (red triangle pointing to true north)
-        // North is always at the top of the screen in our coordinate system
-        float northY = centerY - radius - 30f; // Position above the circle
-
-
-        // Draw "N" text for north indicator
-        canvas.drawText("N", centerX, northY, northTextPaint);
-
-        // Draw arrow pointing north
-        float arrowSize = 15f;
-        canvas.drawLine(centerX, northY + 10, centerX, northY + 25, northIndicatorPaint);
-        canvas.drawLine(centerX, northY + 10, centerX - arrowSize / 2, northY + 20, northIndicatorPaint);
-        canvas.drawLine(centerX, northY + 10, centerX + arrowSize / 2, northY + 20, northIndicatorPaint);
 
         // Draw anchor at center
         canvas.drawCircle(centerX, centerY, 16f, anchorPaint);
