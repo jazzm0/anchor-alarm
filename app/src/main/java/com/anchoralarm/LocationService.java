@@ -1,7 +1,5 @@
 package com.anchoralarm;
 
-import static com.anchoralarm.MainActivity.ANCHOR_ALARM_CHANNEL;
-import static com.anchoralarm.MainActivity.INTENT_STOP_ALARM;
 import static java.util.Objects.isNull;
 
 import android.app.Notification;
@@ -24,6 +22,8 @@ import android.os.Vibrator;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 
+import com.anchoralarm.repository.LocationTrackRepository;
+
 public class LocationService extends Service {
 
     private LocationManager locationManager;
@@ -37,18 +37,20 @@ public class LocationService extends Service {
     private Runnable alarmStopRunnable;
     private Runnable vibrationStopRunnable;
     private boolean isAlarmActive = false;
+    private LocationTrackRepository trackRepository;
 
     @Override
     public void onCreate() {
         super.onCreate();
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
         alarmHandler = new android.os.Handler();
+        trackRepository = new LocationTrackRepository(this);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         // Check if this is a stop alarms command
-        if (!isNull(intent) && INTENT_STOP_ALARM.equals(intent.getAction())) {
+        if (!isNull(intent) && "STOP_ALARMS".equals(intent.getAction())) {
             stopAllAlarms();
             isAlarmActive = false;
             return START_NOT_STICKY;
@@ -92,7 +94,7 @@ public class LocationService extends Service {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
-        return new NotificationCompat.Builder(this, ANCHOR_ALARM_CHANNEL)
+        return new NotificationCompat.Builder(this, "ANCHOR_ALARM_CHANNEL")
                 .setContentTitle("Anchor Alarm Running")
                 .setContentText("Monitoring boat position")
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
@@ -104,6 +106,9 @@ public class LocationService extends Service {
         locationListener = new LocationListener() {
             @Override
             public void onLocationChanged(@NonNull Location currentLocation) {
+                // Track the location
+                trackRepository.addLocationTrack(currentLocation, anchorLocation);
+                
                 float distance = currentLocation.distanceTo(anchorLocation);
                 if (distance > driftRadius) {
                     // Only trigger alarm if not already active
@@ -165,7 +170,7 @@ public class LocationService extends Service {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, ANCHOR_ALARM_CHANNEL)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "ANCHOR_ALARM_CHANNEL")
                 .setContentTitle("Anchor Alarm")
                 .setContentText("Boat has drifted beyond set radius or GPS disabled!")
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)

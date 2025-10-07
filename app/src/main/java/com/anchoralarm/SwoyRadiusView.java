@@ -13,12 +13,17 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.graphics.Path;
 import android.location.Location;
 import android.util.AttributeSet;
 import android.view.View;
 
 import androidx.annotation.NonNull;
 
+import com.anchoralarm.model.LocationTrack;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 public class SwoyRadiusView extends View implements SensorEventListener {
@@ -27,11 +32,14 @@ public class SwoyRadiusView extends View implements SensorEventListener {
     private Paint anchorPaint;
     private Paint boatPaint;
     private Paint textPaint;
+    private Paint trackPaint;
+    private Paint trackPointPaint;
 
     private Location anchorLocation;
     private Location currentLocation;
     private float driftRadius;
     private float locationAccuracy;
+    private List<LocationTrack> trackHistory = new ArrayList<>();
 
     private float boatX = 0.5f; // Relative position (0-1)
     private float boatY = 0.5f; // Relative position (0-1)
@@ -99,6 +107,19 @@ public class SwoyRadiusView extends View implements SensorEventListener {
         textPaint.setTypeface(Typeface.create(Typeface.DEFAULT, BOLD));
         textPaint.setTextAlign(Paint.Align.CENTER);
 
+        // Track paint (path line)
+        trackPaint = new Paint();
+        trackPaint.setColor(Color.parseColor("#FF9800"));
+        trackPaint.setStyle(Paint.Style.STROKE);
+        trackPaint.setStrokeWidth(3f);
+        trackPaint.setAntiAlias(true);
+
+        // Track point paint (small circles for track points)
+        trackPointPaint = new Paint();
+        trackPointPaint.setColor(Color.parseColor("#FF9800"));
+        trackPointPaint.setStyle(Paint.Style.FILL);
+        trackPointPaint.setAntiAlias(true);
+
         // Initialize compass sensors
         sensorManager = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
         if (sensorManager != null) {
@@ -140,6 +161,35 @@ public class SwoyRadiusView extends View implements SensorEventListener {
         }
 
         invalidate(); // Trigger redraw
+    }
+
+    public void setTrackHistory(List<LocationTrack> trackHistory) {
+        this.trackHistory = trackHistory != null ? trackHistory : new ArrayList<>();
+        invalidate(); // Trigger redraw
+    }
+
+    private float[] convertLocationToViewCoordinates(Location location, int width, int height) {
+        if (anchorLocation == null || driftRadius <= 0) {
+            return new float[]{width / 2f, height / 2f};
+        }
+
+        float distance = anchorLocation.distanceTo(location);
+        if (distance == 0) {
+            return new float[]{width / 2f, height / 2f};
+        }
+
+        // Calculate bearing from anchor to location
+        double trueBearing = Math.toRadians(anchorLocation.bearingTo(location));
+        double adjustedBearing = trueBearing - currentAzimuth;
+
+        // Scale the distance relative to the drift radius
+        float normalizedDistance = min(distance / driftRadius, 1.0f) * 0.45f;
+
+        // Convert to view coordinates
+        float relativeX = 0.5f + (float) (normalizedDistance * Math.sin(adjustedBearing));
+        float relativeY = 0.5f - (float) (normalizedDistance * Math.cos(adjustedBearing));
+
+        return new float[]{width * relativeX, height * relativeY};
     }
 
     // Sensor event handling for compass
@@ -213,6 +263,33 @@ public class SwoyRadiusView extends View implements SensorEventListener {
 
         // Draw dashed circle border
         canvas.drawCircle(centerX, centerY, radius, circlePaint);
+
+        // Draw track history if available
+        if (trackHistory != null && trackHistory.size() > 1) {
+            Path trackPath = new Path();
+            boolean firstPoint = true;
+
+            for (LocationTrack track : trackHistory) {
+                Location trackLocation = new Location("track");
+                trackLocation.setLatitude(track.getLatitude());
+                trackLocation.setLongitude(track.getLongitude());
+
+                float[] coords = convertLocationToViewCoordinates(trackLocation, width, height);
+                
+                if (firstPoint) {
+                    trackPath.moveTo(coords[0], coords[1]);
+                    firstPoint = false;
+                } else {
+                    trackPath.lineTo(coords[0], coords[1]);
+                }
+
+                // Draw small circles for track points
+                canvas.drawCircle(coords[0], coords[1], 3f, trackPointPaint);
+            }
+
+            // Draw the track path
+            canvas.drawPath(trackPath, trackPaint);
+        }
 
         // Draw anchor at center
         canvas.drawCircle(centerX, centerY, 16f, anchorPaint);

@@ -30,6 +30,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.anchoralarm.model.LocationTrack;
+import com.anchoralarm.repository.LocationTrackRepository;
+
+import java.util.List;
+
 public class MainActivity extends AppCompatActivity {
 
     public static final String ANCHOR_ALARM_CHANNEL = "ANCHOR_ALARM_CHANNEL";
@@ -135,6 +140,10 @@ public class MainActivity extends AppCompatActivity {
                 editor.clear();
                 editor.apply();
 
+                // Clear location tracks
+                LocationTrackRepository trackRepository = new LocationTrackRepository(this);
+                trackRepository.clearTracks();
+
                 // Clear all alarm notifications
                 clearAllNotifications();
 
@@ -146,7 +155,7 @@ public class MainActivity extends AppCompatActivity {
                     hideSwoyRadiusVisualization();
                 }
                 updateButtonState(toggleAnchorButton);
-                Toast.makeText(this, "Anchor reset", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Anchor reset and location history cleared", Toast.LENGTH_SHORT).show();
             } else {
                 // Set anchor
                 if (anchorDepthInput.getText().toString().isEmpty() || chainLengthInput.getText().toString().isEmpty()) {
@@ -386,6 +395,11 @@ public class MainActivity extends AppCompatActivity {
             swoyRadiusView.setVisibility(View.VISIBLE);
             // Update the view with current position data
             swoyRadiusView.updatePositions(anchorLocation, currentLocation, driftRadius, locationAccuracy);
+
+            // Load and display track history
+            LocationTrackRepository trackRepository = new LocationTrackRepository(this);
+            List<LocationTrack> tracks = trackRepository.getRecentTracks(100); // Show last 100 tracks for visualization
+            swoyRadiusView.setTrackHistory(tracks);
         }
     }
 
