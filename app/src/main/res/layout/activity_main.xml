@@ -13,7 +13,6 @@
         android:layout_marginTop="8dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
@@ -21,28 +20,42 @@
             android:id="@+id/satelliteIcon"
             android:layout_width="20dp"
             android:layout_height="20dp"
-            android:layout_marginEnd="4dp"
+            android:layout_marginEnd="10dp"
             android:src="@drawable/ic_satellite" />
 
         <TextView
             android:id="@+id/satelliteCount"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="0"
             android:textColor="@android:color/black"
             android:textSize="11sp"
             android:textStyle="bold" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/accuracyContainer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
 
         <ImageView
             android:id="@+id/accuracyIcon"
             android:layout_width="20dp"
             android:layout_height="20dp"
-            android:layout_marginEnd="4dp"
+            android:layout_marginEnd="10dp"
             android:src="@drawable/ic_location_accuracy" />
 
         <TextView
             android:id="@+id/accuracy"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="0m"
             android:textColor="@android:color/black"
             android:textSize="11sp"
             android:textStyle="bold" />
