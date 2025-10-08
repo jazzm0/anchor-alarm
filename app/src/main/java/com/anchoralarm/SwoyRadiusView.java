@@ -9,7 +9,6 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.DashPathEffect;
 import android.graphics.Paint;
-import android.graphics.Path;
 import android.graphics.Typeface;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -34,9 +33,7 @@ public class SwoyRadiusView extends View implements SensorEventListener {
     private Paint anchorPaint;
     private Paint boatPaint;
     private Paint textPaint;
-    private Paint trackPaint;
     private Paint trackPointPaint;
-    private final Path trackPath = new Path();
     private final Location trackLocation = new Location("track");
 
     private Location anchorLocation;
@@ -110,13 +107,6 @@ public class SwoyRadiusView extends View implements SensorEventListener {
         textPaint.setAntiAlias(true);
         textPaint.setTypeface(Typeface.create(Typeface.DEFAULT, BOLD));
         textPaint.setTextAlign(Paint.Align.CENTER);
-
-        // Track paint (path line)
-        trackPaint = new Paint();
-        trackPaint.setColor(Color.parseColor("#FF9800"));
-        trackPaint.setStyle(Paint.Style.STROKE);
-        trackPaint.setStrokeWidth(3f);
-        trackPaint.setAntiAlias(true);
 
         // Track point paint (small circles for track points)
         trackPointPaint = new Paint();
@@ -271,8 +261,6 @@ public class SwoyRadiusView extends View implements SensorEventListener {
         // Draw track history if available
         if (!isNull(trackHistory) && !trackHistory.isEmpty()) {
 
-            boolean firstPoint = true;
-
             for (LocationTrack track : trackHistory) {
 
                 trackLocation.setLatitude(track.getLatitude());
@@ -280,19 +268,10 @@ public class SwoyRadiusView extends View implements SensorEventListener {
 
                 float[] coordinates = convertLocationToViewCoordinates(trackLocation, width, height);
 
-                if (firstPoint) {
-                    trackPath.moveTo(coordinates[0], coordinates[1]);
-                    firstPoint = false;
-                } else {
-                    trackPath.lineTo(coordinates[0], coordinates[1]);
-                }
-
                 // Draw small circles for track points
                 canvas.drawCircle(coordinates[0], coordinates[1], 3f, trackPointPaint);
             }
 
-            // Draw the track path
-            canvas.drawPath(trackPath, trackPaint);
         }
 
         // Draw anchor at center

@@ -26,6 +26,7 @@ import com.anchoralarm.repository.LocationTrackRepository;
 
 public class LocationService extends Service {
 
+    private static final int LOCATION_UPDATE_MIN_TIME = 1000;
     private LocationManager locationManager;
     private LocationListener locationListener;
     private Location anchorLocation;
@@ -108,7 +109,7 @@ public class LocationService extends Service {
             public void onLocationChanged(@NonNull Location currentLocation) {
                 // Track the location
                 trackRepository.addLocationTrack(currentLocation, anchorLocation);
-                
+
                 float distance = currentLocation.distanceTo(anchorLocation);
                 if (distance > driftRadius) {
                     // Only trigger alarm if not already active
@@ -141,8 +142,8 @@ public class LocationService extends Service {
             // Request high-priority, frequent location updates for safety-critical app
             locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
-                    5000, // 5 seconds - more frequent for anchor monitoring
-                    0, // No minimum distance - detect any movement
+                    LOCATION_UPDATE_MIN_TIME,
+                    0,
                     locationListener);
 
             // Also request network provider as backup

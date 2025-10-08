@@ -148,7 +148,7 @@ public class MainActivity extends AppCompatActivity {
                 clearAllNotifications();
 
                 // Update status display - will show current location if available, otherwise "Anchor not set"
-                if (currentLocation != null) {
+                if (!isNull(currentLocation)) {
                     updateStatusDisplay();
                 } else {
                     statusText.setText(getString(R.string.anchor_not_set));
