@@ -7,6 +7,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.location.GnssStatus;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -22,6 +23,7 @@ import android.os.Vibrator;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 
+import com.anchoralarm.location.GnssConstellationMonitor;
 import com.anchoralarm.repository.LocationTrackRepository;
 
 public class LocationService extends Service {
@@ -39,6 +41,8 @@ public class LocationService extends Service {
     private Runnable vibrationStopRunnable;
     private boolean isAlarmActive = false;
     private LocationTrackRepository trackRepository;
+    private GnssConstellationMonitor constellationMonitor;
+    private GnssStatus.Callback gnssStatusCallback;
 
     @Override
     public void onCreate() {
@@ -46,6 +50,10 @@ public class LocationService extends Service {
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
         alarmHandler = new android.os.Handler();
         trackRepository = new LocationTrackRepository(this);
+
+        // Initialize GNSS constellation monitor for Android N+ (API 24+)
+        constellationMonitor = new GnssConstellationMonitor();
+        setupGnssStatusCallback();
     }
 
     @Override
@@ -91,16 +99,63 @@ public class LocationService extends Service {
         }
     }
 
+    private void setupGnssStatusCallback() {
+        gnssStatusCallback = new GnssStatus.Callback() {
+            @Override
+            public void onSatelliteStatusChanged(GnssStatus status) {
+                if (!isNull(constellationMonitor)) {
+                    constellationMonitor.processGnssStatus(status);
+                    // Update foreground notification with constellation info
+                    updateForegroundNotification();
+                }
+            }
+
+            @Override
+            public void onFirstFix(int ttffMillis) {
+                // Time to first fix - could be useful for accuracy assessment
+            }
+
+            @Override
+            public void onStarted() {
+                // GNSS engine started
+            }
+
+            @Override
+            public void onStopped() {
+                // GNSS engine stopped
+            }
+        };
+    }
+
     private Notification buildForegroundNotification() {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
+        String contentText = "Monitoring boat position";
+
+        // Add constellation info if available
+        if (!isNull(constellationMonitor)) {
+            int totalSats = constellationMonitor.getTotalSatellites();
+            int usedSats = constellationMonitor.getTotalUsedInFix();
+            if (totalSats > 0) {
+                contentText = String.format("Monitoring - %d/%d satellites", usedSats, totalSats);
+            }
+        }
+
         return new NotificationCompat.Builder(this, "ANCHOR_ALARM_CHANNEL")
                 .setContentTitle("Anchor Alarm Running")
-                .setContentText("Monitoring boat position")
+                .setContentText(contentText)
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
                 .setContentIntent(pendingIntent)
                 .build();
+    }
+
+    private void updateForegroundNotification() {
+        Notification notification = buildForegroundNotification();
+        NotificationManager notificationManager = getSystemService(NotificationManager.class);
+        if (!isNull(notificationManager)) {
+            notificationManager.notify(1, notification);
+        }
     }
 
     private void startLocationUpdates() {
@@ -153,6 +208,11 @@ public class LocationService extends Service {
                         10000, // 10 seconds for network provider
                         0,
                         locationListener);
+            }
+
+            // Register GNSS status callback for constellation monitoring (Android N+)
+            if (gnssStatusCallback != null) {
+                locationManager.registerGnssStatusCallback(gnssStatusCallback);
             }
         }
     }
@@ -325,6 +385,12 @@ public class LocationService extends Service {
         if (!isNull(locationListener)) {
             locationManager.removeUpdates(locationListener);
             locationListener = null;
+        }
+
+        // Unregister GNSS status callback
+        if (gnssStatusCallback != null) {
+            locationManager.unregisterGnssStatusCallback(gnssStatusCallback);
+            gnssStatusCallback = null;
         }
 
         // Release wake lock

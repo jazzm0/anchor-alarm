@@ -242,7 +242,7 @@ public class MainActivity extends AppCompatActivity {
             // Show current location status when no anchor is set
             String latDMS = convertToDMS(currentLocation.getLatitude(), true);
             String lonDMS = convertToDMS(currentLocation.getLongitude(), false);
-            String statusText = String.format(ENGLISH, "Current Location\n lat: %s \tlong: %s\nAnchor not set", latDMS, lonDMS);
+            String statusText = String.format(ENGLISH, "Current Location\n lat: %s \tlong: %s", latDMS, lonDMS);
             this.statusText.setText(statusText);
             hideSwoyRadiusVisualization();
         }
