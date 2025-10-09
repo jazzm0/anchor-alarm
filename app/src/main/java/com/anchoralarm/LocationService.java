@@ -69,6 +69,11 @@ public class LocationService extends Service {
         if (!isNull(intent) && "STOP_ALARMS".equals(intent.getAction())) {
             stopAllAlarms();
             isAlarmActive = false;
+            // Clear alarm notification
+            NotificationManager notificationManager = getSystemService(NotificationManager.class);
+            if (notificationManager != null) {
+                notificationManager.cancel(2); // Cancel the alarm notification
+            }
             return START_NOT_STICKY;
         }
 
@@ -145,8 +150,6 @@ public class LocationService extends Service {
                     return; // Reject outlier
                 }
                 previousLocation = currentLocation;
-
-                outlierDetector.updateBaselineMetrics(currentLocation);
 
                 var filteredLocation = kalmanLocationFilter.filter(currentLocation, currentLocation.getAccuracy());
 
@@ -291,10 +294,18 @@ public class LocationService extends Service {
             }
 
             if (!isNull(alarmMediaPlayer)) {
-                if (alarmMediaPlayer.isPlaying()) {
-                    alarmMediaPlayer.stop();
+                try {
+                    if (alarmMediaPlayer.isPlaying()) {
+                        alarmMediaPlayer.stop();
+                    }
+                } catch (IllegalStateException e) {
+                    Log.w(TAG, "MediaPlayer was in invalid state when stopping", e);
                 }
-                alarmMediaPlayer.release();
+                try {
+                    alarmMediaPlayer.release();
+                } catch (Exception e) {
+                    Log.w(TAG, "Error releasing MediaPlayer", e);
+                }
                 alarmMediaPlayer = null;
             }
         } catch (Exception e) {
