@@ -27,6 +27,7 @@ import androidx.core.app.NotificationCompat;
 
 import com.anchoralarm.location.GNSSConstellationMonitor;
 import com.anchoralarm.location.filter.KalmanLocationFilter;
+import com.anchoralarm.location.filter.OutlierDetector;
 import com.anchoralarm.repository.LocationTrackRepository;
 
 public class LocationService extends Service {
@@ -48,6 +49,7 @@ public class LocationService extends Service {
     private GNSSConstellationMonitor constellationMonitor;
     private GnssStatus.Callback gnssStatusCallback;
     private final KalmanLocationFilter kalmanLocationFilter = new KalmanLocationFilter();
+    private final OutlierDetector outlierDetector = new OutlierDetector();
 
     @Override
     public void onCreate() {
@@ -57,6 +59,7 @@ public class LocationService extends Service {
         trackRepository = new LocationTrackRepository(this);
 
         constellationMonitor = new GNSSConstellationMonitor();
+        reset();
         setupGNSSStatusCallback();
     }
 
@@ -68,7 +71,7 @@ public class LocationService extends Service {
             return START_NOT_STICKY;
         }
 
-        kalmanLocationFilter.reset();
+        reset();
 
         double anchorLat = intent.getDoubleExtra("anchorLat", 0);
         double anchorLon = intent.getDoubleExtra("anchorLon", 0);
@@ -83,6 +86,11 @@ public class LocationService extends Service {
         startForeground(1, buildForegroundNotification());
         startLocationUpdates();
         return START_STICKY;
+    }
+
+    private void reset() {
+        outlierDetector.reset();
+        kalmanLocationFilter.reset();
     }
 
     private void acquireWakeLock() {
@@ -132,6 +140,12 @@ public class LocationService extends Service {
         locationListener = new LocationListener() {
             @Override
             public void onLocationChanged(@NonNull Location currentLocation) {
+                if (outlierDetector.isOutlier(currentLocation)) {
+                    return; // Reject outlier
+                }
+
+                outlierDetector.updateBaselineMetrics(currentLocation);
+
                 var filteredLocation = kalmanLocationFilter.filter(currentLocation, currentLocation.getAccuracy());
 
                 trackRepository.addLocationTrack(filteredLocation);
@@ -152,6 +166,7 @@ public class LocationService extends Service {
             @Override
             public void onProviderDisabled(@NonNull String provider) {
                 stopSelf();
+                reset();
                 if (!isAlarmActive) {
                     triggerAlarm();
                 }
@@ -312,6 +327,7 @@ public class LocationService extends Service {
     public void onDestroy() {
         super.onDestroy();
         stopAllAlarms();
+        reset();
 
         if (!isNull(locationListener)) {
             locationManager.removeUpdates(locationListener);
