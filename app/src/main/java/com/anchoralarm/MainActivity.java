@@ -32,6 +32,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import com.anchoralarm.location.GNSSConstellationMonitor;
+import com.anchoralarm.location.LocationService;
 import com.anchoralarm.model.LocationTrack;
 import com.anchoralarm.repository.LocationTrackRepository;
 

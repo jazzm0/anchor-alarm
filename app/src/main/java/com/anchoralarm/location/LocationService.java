@@ -1,4 +1,4 @@
-package com.anchoralarm;
+package com.anchoralarm.location;
 
 import static java.util.Objects.isNull;
 
@@ -25,7 +25,7 @@ import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 
-import com.anchoralarm.location.GNSSConstellationMonitor;
+import com.anchoralarm.MainActivity;
 import com.anchoralarm.location.filter.KalmanLocationFilter;
 import com.anchoralarm.location.filter.OutlierDetector;
 import com.anchoralarm.repository.LocationTrackRepository;
@@ -347,7 +347,7 @@ public class LocationService extends Service {
             locationListener = null;
         }
 
-        if (gnssStatusCallback != null) {
+        if (!isNull(gnssStatusCallback)) {
             locationManager.unregisterGnssStatusCallback(gnssStatusCallback);
             gnssStatusCallback = null;
         }

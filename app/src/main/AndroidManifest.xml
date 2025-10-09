@@ -27,7 +27,7 @@
             </intent-filter>
         </activity>
         <service
-            android:name=".LocationService"
+            android:name=".location.LocationService"
             android:foregroundServiceType="location" />
     </application>
 </manifest>
