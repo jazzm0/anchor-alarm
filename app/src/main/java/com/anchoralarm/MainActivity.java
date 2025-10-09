@@ -30,6 +30,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.anchoralarm.location.GNSSConstellationMonitor;
 import com.anchoralarm.model.LocationTrack;
 import com.anchoralarm.repository.LocationTrackRepository;
 
@@ -49,6 +50,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREF_ANCHOR_DEPTH = "anchorDepth";
     private static final String PREF_CHAIN_LENGTH = "chainLength";
 
+    private GNSSConstellationMonitor constellationMonitor;
     private LocationManager locationManager;
     private Location anchorLocation;
     private Location currentLocation;
@@ -58,9 +60,9 @@ public class MainActivity extends AppCompatActivity {
     private TextView statusText;
     private TextView satelliteCountText;
     private TextView accuracyText;
+    private TextView qualityText;
     private SwoyRadiusView swoyRadiusView;
     private SharedPreferences prefs;
-    private int satelliteCount = 0;
     private float locationAccuracy = 0.0f;
     private boolean isLocationServiceRunning = false;
 
@@ -88,7 +90,7 @@ public class MainActivity extends AppCompatActivity {
     private final GnssStatus.Callback gnssStatusCallback = new GnssStatus.Callback() {
         @Override
         public void onSatelliteStatusChanged(GnssStatus status) {
-            satelliteCount = status.getSatelliteCount();
+            constellationMonitor.processGNSSStatus(status);
             updateStatusDisplay();
         }
     };
@@ -99,6 +101,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        constellationMonitor = new GNSSConstellationMonitor();
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
         Button toggleAnchorButton = findViewById(R.id.toggleAnchorButton);
@@ -107,6 +110,7 @@ public class MainActivity extends AppCompatActivity {
         statusText = findViewById(R.id.statusText);
         satelliteCountText = findViewById(R.id.satelliteCount);
         accuracyText = findViewById(R.id.accuracy);
+        qualityText = findViewById(R.id.quality);
         swoyRadiusView = findViewById(R.id.swoyRadiusView);
 
         createNotificationChannel();
@@ -219,13 +223,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateStatusDisplay() {
-        // Update satellite count display
-        if (!isNull(satelliteCountText)) {
-            satelliteCountText.setText(String.valueOf(satelliteCount));
-        }
+        if (!isNull(constellationMonitor)) {
 
-        if (!isNull(accuracyText)) {
-            accuracyText.setText(String.format(ENGLISH, "%.1fm", locationAccuracy));
+            if (!isNull(satelliteCountText)) {
+                satelliteCountText.setText(String.valueOf(constellationMonitor.getTotalSatellites()));
+            }
+
+            if (!isNull(accuracyText)) {
+                accuracyText.setText(String.format(ENGLISH, "%.1fm", locationAccuracy));
+            }
+
+            if (!isNull(qualityText)) {
+                accuracyText.setText(String.format(ENGLISH, "%d", constellationMonitor.getOverallSignalQuality()));
+            }
         }
 
         if (!isNull(anchorLocation)) {
@@ -467,7 +477,7 @@ public class MainActivity extends AppCompatActivity {
      */
     private void clearAllNotifications() {
         NotificationManager notificationManager = getSystemService(NotificationManager.class);
-        if (notificationManager != null) {
+        if (!isNull(notificationManager)) {
             notificationManager.cancelAll();
         }
     }

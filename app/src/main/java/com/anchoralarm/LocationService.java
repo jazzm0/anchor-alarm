@@ -51,7 +51,6 @@ public class LocationService extends Service {
         alarmHandler = new android.os.Handler();
         trackRepository = new LocationTrackRepository(this);
 
-        // Initialize GNSS constellation monitor for Android N+ (API 24+)
         constellationMonitor = new GNSSConstellationMonitor();
         setupGnssStatusCallback();
     }
