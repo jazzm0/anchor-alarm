@@ -75,18 +75,6 @@ public class MainActivity extends AppCompatActivity {
             locationAccuracy = location.hasAccuracy() ? location.getAccuracy() : 0.0f;
             updateStatusDisplay();
         }
-
-        @Override
-        public void onStatusChanged(String provider, int status, Bundle extras) {
-        }
-
-        @Override
-        public void onProviderEnabled(@NonNull String provider) {
-        }
-
-        @Override
-        public void onProviderDisabled(@NonNull String provider) {
-        }
     };
 
     private final GnssStatus.Callback gnssStatusCallback = new GnssStatus.Callback() {
@@ -217,7 +205,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1, locationListener);
-        locationManager.registerGnssStatusCallback(gnssStatusCallback);
+        locationManager.registerGnssStatusCallback(gnssStatusCallback, null);
     }
 
     private void stopLocationUpdates() {
