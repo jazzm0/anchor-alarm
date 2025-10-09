@@ -1,5 +1,7 @@
 package com.anchoralarm.location;
 
+import static java.util.Objects.isNull;
+
 import android.location.GnssStatus;
 
 import java.util.ArrayList;
@@ -11,7 +13,7 @@ import java.util.Map;
  * Monitors and categorizes GNSS satellites by constellation type
  * Provides detailed information about GPS, GLONASS, Galileo, BeiDou, and QZSS satellites
  */
-public class GnssConstellationMonitor {
+public class GNSSConstellationMonitor {
 
     public enum ConstellationType {
         GPS("GPS", 0x1),
@@ -54,7 +56,8 @@ public class GnssConstellationMonitor {
                                 boolean hasEphemeris, boolean hasAlmanac) {
     }
 
-    public static class ConstellationStats {
+    public static class ConstellationStatistics {
+
         public final ConstellationType type;
         public final int totalSatellites;
         public final int usedInFix;
@@ -62,7 +65,7 @@ public class GnssConstellationMonitor {
         public final float maxCn0;
         public final List<SatelliteInfo> satellites;
 
-        public ConstellationStats(ConstellationType type, List<SatelliteInfo> satellites) {
+        public ConstellationStatistics(ConstellationType type, List<SatelliteInfo> satellites) {
             this.type = type;
             this.satellites = new ArrayList<>(satellites);
             this.totalSatellites = satellites.size();
@@ -90,7 +93,7 @@ public class GnssConstellationMonitor {
     /**
      * Process GNSS status and categorize satellites by constellation
      */
-    public void processGnssStatus(GnssStatus status) {
+    public void processGNSSStatus(GnssStatus status) {
         constellationMap.clear();
         totalSatellites = status.getSatelliteCount();
         totalUsedInFix = 0;
@@ -127,21 +130,21 @@ public class GnssConstellationMonitor {
     /**
      * Get statistics for a specific constellation
      */
-    public ConstellationStats getConstellationStats(ConstellationType type) {
+    public ConstellationStatistics getConstellationStats(ConstellationType type) {
         List<SatelliteInfo> satellites = constellationMap.get(type);
-        if (satellites == null) {
+        if (isNull(satellites)) {
             satellites = new ArrayList<>();
         }
-        return new ConstellationStats(type, satellites);
+        return new ConstellationStatistics(type, satellites);
     }
 
     /**
      * Get statistics for all constellations
      */
-    public Map<ConstellationType, ConstellationStats> getAllConstellationStats() {
-        Map<ConstellationType, ConstellationStats> stats = new HashMap<>();
+    public Map<ConstellationType, ConstellationStatistics> getAllConstellationStats() {
+        Map<ConstellationType, ConstellationStatistics> stats = new HashMap<>();
         for (ConstellationType type : ConstellationType.values()) {
-            ConstellationStats stat = getConstellationStats(type);
+            ConstellationStatistics stat = getConstellationStats(type);
             if (stat.totalSatellites > 0) {
                 stats.put(type, stat);
             }
@@ -171,7 +174,7 @@ public class GnssConstellationMonitor {
         float maxAvgCn0 = 0;
 
         for (ConstellationType type : ConstellationType.values()) {
-            ConstellationStats stats = getConstellationStats(type);
+            ConstellationStatistics stats = getConstellationStats(type);
             if (stats.totalSatellites > 0 && stats.averageCn0 > maxAvgCn0) {
                 maxAvgCn0 = stats.averageCn0;
                 strongest = type;

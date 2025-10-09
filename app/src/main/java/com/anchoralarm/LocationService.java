@@ -23,7 +23,7 @@ import android.os.Vibrator;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 
-import com.anchoralarm.location.GnssConstellationMonitor;
+import com.anchoralarm.location.GNSSConstellationMonitor;
 import com.anchoralarm.repository.LocationTrackRepository;
 
 public class LocationService extends Service {
@@ -41,7 +41,7 @@ public class LocationService extends Service {
     private Runnable vibrationStopRunnable;
     private boolean isAlarmActive = false;
     private LocationTrackRepository trackRepository;
-    private GnssConstellationMonitor constellationMonitor;
+    private GNSSConstellationMonitor constellationMonitor;
     private GnssStatus.Callback gnssStatusCallback;
 
     @Override
@@ -52,7 +52,7 @@ public class LocationService extends Service {
         trackRepository = new LocationTrackRepository(this);
 
         // Initialize GNSS constellation monitor for Android N+ (API 24+)
-        constellationMonitor = new GnssConstellationMonitor();
+        constellationMonitor = new GNSSConstellationMonitor();
         setupGnssStatusCallback();
     }
 
@@ -104,7 +104,7 @@ public class LocationService extends Service {
             @Override
             public void onSatelliteStatusChanged(GnssStatus status) {
                 if (!isNull(constellationMonitor)) {
-                    constellationMonitor.processGnssStatus(status);
+                    constellationMonitor.processGNSSStatus(status);
                     // Update foreground notification with constellation info
                     updateForegroundNotification();
                 }
