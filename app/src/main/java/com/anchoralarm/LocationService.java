@@ -26,6 +26,7 @@ import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 
 import com.anchoralarm.location.GNSSConstellationMonitor;
+import com.anchoralarm.location.filter.KalmanLocationFilter;
 import com.anchoralarm.repository.LocationTrackRepository;
 
 public class LocationService extends Service {
@@ -46,6 +47,7 @@ public class LocationService extends Service {
     private LocationTrackRepository trackRepository;
     private GNSSConstellationMonitor constellationMonitor;
     private GnssStatus.Callback gnssStatusCallback;
+    private final KalmanLocationFilter kalmanLocationFilter = new KalmanLocationFilter();
 
     @Override
     public void onCreate() {
@@ -65,6 +67,8 @@ public class LocationService extends Service {
             isAlarmActive = false;
             return START_NOT_STICKY;
         }
+
+        kalmanLocationFilter.reset();
 
         double anchorLat = intent.getDoubleExtra("anchorLat", 0);
         double anchorLon = intent.getDoubleExtra("anchorLon", 0);
@@ -128,9 +132,11 @@ public class LocationService extends Service {
         locationListener = new LocationListener() {
             @Override
             public void onLocationChanged(@NonNull Location currentLocation) {
-                trackRepository.addLocationTrack(currentLocation, anchorLocation);
+                var filteredLocation = kalmanLocationFilter.filter(currentLocation, currentLocation.getAccuracy());
 
-                float distance = currentLocation.distanceTo(anchorLocation);
+                trackRepository.addLocationTrack(filteredLocation);
+
+                float distance = filteredLocation.distanceTo(anchorLocation);
                 if (distance > driftRadius) {
                     if (!isAlarmActive) {
                         triggerAlarm();

@@ -263,8 +263,8 @@ public class SwoyRadiusView extends View implements SensorEventListener {
 
             for (LocationTrack track : trackHistory) {
 
-                trackLocation.setLatitude(track.getLatitude());
-                trackLocation.setLongitude(track.getLongitude());
+                trackLocation.setLatitude(track.latitude());
+                trackLocation.setLongitude(track.longitude());
 
                 float[] coordinates = convertLocationToViewCoordinates(trackLocation, width, height);
 
