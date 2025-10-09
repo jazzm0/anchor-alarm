@@ -22,6 +22,7 @@ import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -61,6 +62,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView satelliteCountText;
     private TextView accuracyText;
     private TextView qualityText;
+    private ImageView qualityIcon;
     private SwoyRadiusView swoyRadiusView;
     private SharedPreferences prefs;
     private float locationAccuracy = 0.0f;
@@ -111,6 +113,7 @@ public class MainActivity extends AppCompatActivity {
         satelliteCountText = findViewById(R.id.satelliteCount);
         accuracyText = findViewById(R.id.accuracy);
         qualityText = findViewById(R.id.quality);
+        qualityIcon = findViewById(R.id.qualityIcon);
         swoyRadiusView = findViewById(R.id.swoyRadiusView);
 
         createNotificationChannel();
@@ -234,7 +237,9 @@ public class MainActivity extends AppCompatActivity {
             }
 
             if (!isNull(qualityText)) {
-                qualityText.setText(String.format(ENGLISH, "%d", constellationMonitor.getOverallSignalQuality()));
+                int signalQuality = constellationMonitor.getOverallSignalQuality();
+                qualityText.setText(String.format(ENGLISH, "%d%%", signalQuality));
+                updateSignalQualityIcon(signalQuality);
             }
         }
 
@@ -256,6 +261,29 @@ public class MainActivity extends AppCompatActivity {
             this.statusText.setText(statusText);
             hideSwoyRadiusVisualization();
         }
+    }
+
+    /**
+     * Update signal quality icon based on quality percentage (0-100%)
+     * Maps to 5 signal strength levels: ic_signal_0 to ic_signal_4
+     */
+    private void updateSignalQualityIcon(int qualityPercentage) {
+        if (qualityIcon == null) return;
+
+        int iconResource;
+        if (qualityPercentage <= 0) {
+            iconResource = R.drawable.ic_signal_0;      // 0% - No signal
+        } else if (qualityPercentage <= 25) {
+            iconResource = R.drawable.ic_signal_1;      // 1-25% - Very poor signal
+        } else if (qualityPercentage <= 50) {
+            iconResource = R.drawable.ic_signal_2;      // 26-50% - Poor signal
+        } else if (qualityPercentage <= 75) {
+            iconResource = R.drawable.ic_signal_3;      // 51-75% - Good signal
+        } else {
+            iconResource = R.drawable.ic_signal_4;      // 76-100% - Excellent signal
+        }
+
+        qualityIcon.setImageResource(iconResource);
     }
 
     /**
