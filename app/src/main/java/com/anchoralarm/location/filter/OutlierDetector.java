@@ -1,7 +1,5 @@
 package com.anchoralarm.location.filter;
 
-import static java.util.Objects.isNull;
-
 import android.location.Location;
 import android.util.Log;
 
@@ -22,16 +20,26 @@ import java.util.List;
  * - Adaptive baseline metrics
  * - Detailed outlier reasoning
  * - Marine navigation optimized thresholds
+ * - Thread-safe operation
  * <p>
  * Expected Performance:
  * - 99% outlier detection accuracy
  * - Processing time: <2ms per check
  * - Memory usage: <0.5MB
+ * <p>
+ * FIXED BUGS:
+ * - Corrected method signature to match specification
+ * - Fixed null pointer exception risks
+ * - Corrected time delta handling
+ * - Fixed state management issues
+ * - Added proper baseline metrics integration
+ * - Added thread safety
  */
 public class OutlierDetector {
 
     private static final String TAG = "OutlierDetector";
 
+    // Maximum consecutive outliers before reset
     private static final int MAX_CONSECUTIVE_OUTLIERS = 30;
 
     // Speed thresholds (marine navigation optimized)
@@ -53,6 +61,9 @@ public class OutlierDetector {
     private static final double MIN_TIME_DELTA_SECONDS = 0.5;  // Minimum time between updates
     private static final double MAX_TIME_DELTA_SECONDS = 300.0; // Maximum time gap (5 minutes)
 
+    // Synchronization lock for thread safety
+    private final Object lock = new Object();
+
     // Baseline metrics for statistical analysis
     private final List<LocationMetrics> locationHistory;
     private double averageSpeed;
@@ -61,8 +72,6 @@ public class OutlierDetector {
     private double accuracyStandardDeviation;
     private long lastValidTime;
     private Location lastValidLocation;
-    private Location previous;
-    private long timeDelta;
 
     // Current outlier detection state
     private OutlierReason lastOutlierReason;
@@ -82,87 +91,95 @@ public class OutlierDetector {
     /**
      * Reset detector state - used when setting new anchor or after long gaps
      */
-    public void reset() {
-        locationHistory.clear();
-        averageSpeed = 0;
-        speedStandardDeviation = 0;
-        averageAccuracy = 0;
-        accuracyStandardDeviation = 0;
-        lastValidTime = 0;
-        lastValidLocation = null;
-        lastOutlierReason = OutlierReason.NONE;
-        consecutiveOutliers = 0;
-        previous = null;
-        timeDelta = 0;
-        Log.d(TAG, "Outlier detector reset");
+    public synchronized void reset() {
+        synchronized (lock) {
+            locationHistory.clear();
+            averageSpeed = 0;
+            speedStandardDeviation = 0;
+            averageAccuracy = 0;
+            accuracyStandardDeviation = 0;
+            lastValidTime = 0;
+            lastValidLocation = null;
+            lastOutlierReason = OutlierReason.NONE;
+            consecutiveOutliers = 0;
+            Log.d(TAG, "Outlier detector reset");
+        }
     }
 
     /**
-     * Main outlier detection method
+     * Main outlier detection method - FIXED VERSION
      *
-     * @param current Current GPS location to validate
+     * @param current   Current GPS location to validate
+     * @param previous  Previous GPS location for comparison
+     * @param timeDelta Time difference between locations in milliseconds
      * @return true if the current location is detected as an outlier
      */
-    public boolean isOutlier(Location current) {
-        if (isNull(previous)) {
-            previous = current;
-            timeDelta = 0;
-            lastOutlierReason = OutlierReason.NONE;
-            return false;
-        } else {
-            timeDelta = current.getTime() - previous.getTime();
-        }
-        if (isNull(current)) {
-            lastOutlierReason = OutlierReason.NULL_LOCATION;
-            return true;
-        }
-
-        totalChecks++;
-        double timeDeltaSeconds = timeDelta / 1000.0;
-
-        // 1. Time validation
-        if (!isValidTimeDelta(timeDeltaSeconds)) {
-            lastOutlierReason = OutlierReason.INVALID_TIME_DELTA;
-            recordOutlier();
-            return true;
-        }
-
-        // 2. Accuracy-based filtering
-        if (!isAccuracyAcceptable(current)) {
-            lastOutlierReason = OutlierReason.POOR_ACCURACY;
-            recordOutlier();
-            return true;
-        }
-
-        // 3. Speed-based rejection
-        if (!isSpeedReasonable(current, previous, timeDeltaSeconds)) {
-            lastOutlierReason = OutlierReason.EXCESSIVE_SPEED;
-            recordOutlier();
-            return true;
-        }
-
-        // 4. Geometric validation
-        if (!isGeometricallyConsistent(current, previous, timeDeltaSeconds)) {
-            lastOutlierReason = OutlierReason.GEOMETRIC_INCONSISTENCY;
-            recordOutlier();
-            return true;
-        }
-
-        // 5. Statistical outlier detection (if enough history)
-        if (locationHistory.size() >= MIN_SAMPLES_FOR_STATS) {
-            if (!isStatisticallyConsistent(current, previous, timeDeltaSeconds)) {
-                lastOutlierReason = OutlierReason.STATISTICAL_OUTLIER;
+    public boolean isOutlier(Location current, Location previous, long timeDelta) {
+        synchronized (lock) {
+            // 1. Null validation (FIXED: Check current first)
+            if (current == null) {
+                lastOutlierReason = OutlierReason.NULL_LOCATION;
                 recordOutlier();
                 return true;
             }
-        }
 
-        // Location passed all tests
-        lastOutlierReason = OutlierReason.NONE;
-        consecutiveOutliers = 0;
-        timeDelta = current.getTime() - previous.getTime();
-        previous = current;
-        return false;
+            // 2. If no previous location, accept current (first fix)
+            if (previous == null) {
+                lastOutlierReason = OutlierReason.NONE;
+                // Update baseline metrics for first valid location
+                updateBaselineMetricsInternal(current);
+                return false;
+            }
+
+            totalChecks++;
+            double timeDeltaSeconds = timeDelta / 1000.0;
+
+            // 3. Time validation (FIXED: Use parameter directly)
+            if (!isValidTimeDelta(timeDeltaSeconds)) {
+                lastOutlierReason = OutlierReason.INVALID_TIME_DELTA;
+                recordOutlier();
+                return true;
+            }
+
+            // 4. Accuracy-based filtering
+            if (!isAccuracyAcceptable(current)) {
+                lastOutlierReason = OutlierReason.POOR_ACCURACY;
+                recordOutlier();
+                return true;
+            }
+
+            // 5. Speed-based rejection (FIXED: Use correct parameters)
+            if (!isSpeedReasonable(current, previous, timeDeltaSeconds)) {
+                lastOutlierReason = OutlierReason.EXCESSIVE_SPEED;
+                recordOutlier();
+                return true;
+            }
+
+            // 6. Geometric validation (FIXED: Proper state management)
+            if (!isGeometricallyConsistent(current, previous, timeDeltaSeconds)) {
+                lastOutlierReason = OutlierReason.GEOMETRIC_INCONSISTENCY;
+                recordOutlier();
+                return true;
+            }
+
+            // 7. Statistical outlier detection (if enough history)
+            if (locationHistory.size() >= MIN_SAMPLES_FOR_STATS) {
+                if (!isStatisticallyConsistent(current, previous, timeDeltaSeconds)) {
+                    lastOutlierReason = OutlierReason.STATISTICAL_OUTLIER;
+                    recordOutlier();
+                    return true;
+                }
+            }
+
+            // Location passed all tests - FIXED: Update state properly
+            lastOutlierReason = OutlierReason.NONE;
+            consecutiveOutliers = 0;
+
+            // FIXED: Update baseline metrics for valid locations
+            updateBaselineMetricsInternal(current);
+
+            return false;
+        }
     }
 
     /**
@@ -234,6 +251,7 @@ public class OutlierDetector {
 
     /**
      * Geometric validation - check position consistency with expected movement
+     * FIXED: Proper state management and calculations
      */
     private boolean isGeometricallyConsistent(Location current, Location previous, double timeDeltaSeconds) {
         // If we have a valid last location, check acceleration consistency
@@ -260,7 +278,7 @@ public class OutlierDetector {
 
         // Check for reasonable bearing consistency (if we have enough history)
         if (locationHistory.size() >= 3) {
-            return isBearingConsistent(current, previous);
+            return isBearingConsistent(current, previous, timeDeltaSeconds);
         }
 
         return true;
@@ -268,8 +286,9 @@ public class OutlierDetector {
 
     /**
      * Check bearing consistency to detect GPS jumps
+     * FIXED: Correct time delta usage
      */
-    private boolean isBearingConsistent(Location current, Location previous) {
+    private boolean isBearingConsistent(Location current, Location previous, double timeDeltaSeconds) {
         if (locationHistory.size() < 2) {
             return true; // Not enough data for bearing analysis
         }
@@ -288,8 +307,8 @@ public class OutlierDetector {
             bearingDiff = 360 - bearingDiff; // Handle wrap-around
         }
 
-        // If bearing change is very large and speed is high, might be an outlier
-        double currentSpeed = current.distanceTo(previous) / (recent1.timeDelta / 1000.0);
+        // FIXED: Use correct time delta for speed calculation
+        double currentSpeed = current.distanceTo(previous) / timeDeltaSeconds;
         if (bearingDiff > 120 && currentSpeed > REASONABLE_SPEED_MPS) {
             Log.d(TAG, String.format("Rejecting location due to sharp bearing change: %.1f° at speed %.1f m/s",
                     bearingDiff, currentSpeed));
@@ -317,7 +336,6 @@ public class OutlierDetector {
             return false;
         }
 
-
         if (Math.abs(accuracyZScore) > Z_SCORE_THRESHOLD) {
             Log.d(TAG, String.format("Accuracy statistical outlier: accuracy=%.1fm, z-score=%.2f", accuracy, accuracyZScore));
             return false;
@@ -337,10 +355,20 @@ public class OutlierDetector {
     }
 
     /**
-     * Update baseline metrics with a new valid location
+     * Public method to update baseline metrics with a new valid location
      */
     public void updateBaselineMetrics(Location location) {
-        if (isNull(location) || !location.hasAccuracy()) {
+        synchronized (lock) {
+            updateBaselineMetricsInternal(location);
+        }
+    }
+
+    /**
+     * Internal method to update baseline metrics (assumes lock is held)
+     * FIXED: Integrated into main validation flow
+     */
+    private void updateBaselineMetricsInternal(Location location) {
+        if (location == null) {
             return;
         }
 
@@ -461,30 +489,36 @@ public class OutlierDetector {
      * Get the reason for the last outlier detection
      */
     public OutlierReason getOutlierReason() {
-        return lastOutlierReason;
+        synchronized (lock) {
+            return lastOutlierReason;
+        }
     }
 
     /**
      * Get detector statistics
      */
     public DetectorStatistics getStatistics() {
-        double outlierRate = totalChecks > 0 ? (double) totalOutliers / totalChecks : 0;
-        return new DetectorStatistics(
-                totalChecks,
-                totalOutliers,
-                consecutiveOutliers,
-                (float) (outlierRate * 100),
-                locationHistory.size(),
-                (float) averageSpeed,
-                (float) averageAccuracy
-        );
+        synchronized (lock) {
+            double outlierRate = totalChecks > 0 ? (double) totalOutliers / totalChecks : 0;
+            return new DetectorStatistics(
+                    totalChecks,
+                    totalOutliers,
+                    consecutiveOutliers,
+                    (float) (outlierRate * 100),
+                    locationHistory.size(),
+                    (float) averageSpeed,
+                    (float) averageAccuracy
+            );
+        }
     }
 
     /**
      * Check if detector has sufficient baseline data
      */
     public boolean hasBaselineData() {
-        return locationHistory.size() >= MIN_SAMPLES_FOR_STATS;
+        synchronized (lock) {
+            return locationHistory.size() >= MIN_SAMPLES_FOR_STATS;
+        }
     }
 
     /**
@@ -518,8 +552,12 @@ public class OutlierDetector {
     /**
      * Internal class for storing location metrics
      */
-    private record LocationMetrics(Location location, long timestamp, long timeDelta) {
-        private LocationMetrics(Location location, long timestamp, long timeDelta) {
+    private static class LocationMetrics {
+        final Location location;
+        final long timestamp;
+        final long timeDelta;
+
+        LocationMetrics(Location location, long timestamp, long timeDelta) {
             this.location = new Location(location);
             this.timestamp = timestamp;
             this.timeDelta = timeDelta;
@@ -529,9 +567,25 @@ public class OutlierDetector {
     /**
      * Statistics class for monitoring detector performance
      */
-    public record DetectorStatistics(int totalChecks, int totalOutliers, int consecutiveOutliers,
-                                     float outlierRate, int historySize, float averageSpeed,
-                                     float averageAccuracy) {
+    public static class DetectorStatistics {
+        public final int totalChecks;
+        public final int totalOutliers;
+        public final int consecutiveOutliers;
+        public final float outlierRate;
+        public final int historySize;
+        public final float averageSpeed;
+        public final float averageAccuracy;
+
+        public DetectorStatistics(int totalChecks, int totalOutliers, int consecutiveOutliers,
+                                  float outlierRate, int historySize, float averageSpeed, float averageAccuracy) {
+            this.totalChecks = totalChecks;
+            this.totalOutliers = totalOutliers;
+            this.consecutiveOutliers = consecutiveOutliers;
+            this.outlierRate = outlierRate;
+            this.historySize = historySize;
+            this.averageSpeed = averageSpeed;
+            this.averageAccuracy = averageAccuracy;
+        }
 
         @Override
         public String toString() {

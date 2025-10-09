@@ -37,6 +37,7 @@ public class LocationService extends Service {
     private LocationManager locationManager;
     private LocationListener locationListener;
     private Location anchorLocation;
+    private Location previousLocation;
     private float driftRadius;
     private MediaPlayer alarmMediaPlayer;
     private Vibrator vibrator;
@@ -140,9 +141,10 @@ public class LocationService extends Service {
         locationListener = new LocationListener() {
             @Override
             public void onLocationChanged(@NonNull Location currentLocation) {
-                if (outlierDetector.isOutlier(currentLocation)) {
+                if (!isNull(previousLocation) && outlierDetector.isOutlier(currentLocation, previousLocation, currentLocation.getTime() - previousLocation.getTime())) {
                     return; // Reject outlier
                 }
+                previousLocation = currentLocation;
 
                 outlierDetector.updateBaselineMetrics(currentLocation);
 
