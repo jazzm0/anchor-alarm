@@ -234,7 +234,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             if (!isNull(qualityText)) {
-                accuracyText.setText(String.format(ENGLISH, "%d", constellationMonitor.getOverallSignalQuality()));
+                qualityText.setText(String.format(ENGLISH, "%d", constellationMonitor.getOverallSignalQuality()));
             }
         }
 
