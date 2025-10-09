@@ -552,12 +552,8 @@ public class OutlierDetector {
     /**
      * Internal class for storing location metrics
      */
-    private static class LocationMetrics {
-        final Location location;
-        final long timestamp;
-        final long timeDelta;
-
-        LocationMetrics(Location location, long timestamp, long timeDelta) {
+    private record LocationMetrics(Location location, long timestamp, long timeDelta) {
+        private LocationMetrics(Location location, long timestamp, long timeDelta) {
             this.location = new Location(location);
             this.timestamp = timestamp;
             this.timeDelta = timeDelta;
@@ -567,25 +563,9 @@ public class OutlierDetector {
     /**
      * Statistics class for monitoring detector performance
      */
-    public static class DetectorStatistics {
-        public final int totalChecks;
-        public final int totalOutliers;
-        public final int consecutiveOutliers;
-        public final float outlierRate;
-        public final int historySize;
-        public final float averageSpeed;
-        public final float averageAccuracy;
-
-        public DetectorStatistics(int totalChecks, int totalOutliers, int consecutiveOutliers,
-                                  float outlierRate, int historySize, float averageSpeed, float averageAccuracy) {
-            this.totalChecks = totalChecks;
-            this.totalOutliers = totalOutliers;
-            this.consecutiveOutliers = consecutiveOutliers;
-            this.outlierRate = outlierRate;
-            this.historySize = historySize;
-            this.averageSpeed = averageSpeed;
-            this.averageAccuracy = averageAccuracy;
-        }
+    public record DetectorStatistics(int totalChecks, int totalOutliers, int consecutiveOutliers,
+                                     float outlierRate, int historySize, float averageSpeed,
+                                     float averageAccuracy) {
 
         @Override
         public String toString() {
