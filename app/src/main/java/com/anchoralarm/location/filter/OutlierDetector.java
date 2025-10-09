@@ -5,80 +5,50 @@ import static java.util.Objects.isNull;
 import android.location.Location;
 import android.util.Log;
 
-/**
- * Advanced outlier detection system for GPS location data.
- * <p>
- * This detector uses multiple algorithms to identify and reject invalid GPS positions:
- * - Speed-based rejection for impossible movement
- * - Accuracy-based filtering for low-quality fixes
- * - Geometric validation for position consistency
- * <p>
- * Key Features:
- * - Multi-algorithm validation
- * - Adaptive baseline metrics
- * - Detailed outlier reasoning
- * - Marine navigation optimized thresholds
- * - Thread-safe operation
- * <p>
- * Expected Performance:
- * - 99% outlier detection accuracy
- * - Processing time: <2ms per check
- * - Memory usage: <0.5MB
- */
+import java.util.Locale;
+
 public class OutlierDetector {
 
     private static final String TAG = "OutlierDetector";
 
-    // Maximum consecutive outliers before reset
-    private static final int MAX_CONSECUTIVE_OUTLIERS = 30;
-
-    // Speed thresholds (marine navigation optimized)
-    private static final double MAX_SPEED_KNOTS = 50.0;         // 50 knots max speed
-    private static final double MAX_SPEED_MPS = MAX_SPEED_KNOTS * 0.514444; // Convert to m/s
-    private static final double REASONABLE_SPEED_MPS = 10.0;    // 19.4 knots reasonable speed
+    // Speed thresholds
+    private static final double MAX_SPEED_KNOTS = 50.0;
+    private static final double MAX_SPEED_MPS = MAX_SPEED_KNOTS * 0.514444;
+    private static final double REASONABLE_SPEED_MPS = 10.0;
 
     // Accuracy thresholds
-    private static final float MAX_ACCURACY_METERS = 50.0f;     // Reject fixes worse than 50m
-    private static final float PREFERRED_ACCURACY = 10.0f;      // Preferred accuracy threshold
+    private static final float MAX_ACCURACY_METERS = 50.0f;   // Hard reject above this
+    private static final float PREFERRED_ACCURACY = 10.0f;    // Soft threshold
+    private static final int MAX_CONSECUTIVE_POOR_ACCURACY = 3;
 
-    // Geometric validation parameters
-    private static final double MAX_ACCELERATION_MPS2 = 5.0;   // Maximum acceleration (m/s²)
-    private static final double MIN_TIME_DELTA_SECONDS = 0.5;  // Minimum time between updates
-    private static final double MAX_TIME_DELTA_SECONDS = 300.0; // Maximum time gap (5 minutes)
+    // Geometric validation
+    private static final double MAX_ACCELERATION_MPS2 = 5.0;
+    private static final double MIN_TIME_DELTA_SECONDS = 0.5;
+    private static final double MAX_TIME_DELTA_SECONDS = 300.0;
 
-    // Synchronization lock for thread safety
     private final Object lock = new Object();
     private long lastValidTime;
     private Location lastValidLocation;
-
-    // Current outlier detection state
     private OutlierReason lastOutlierReason;
 
+    // State for adaptive logic
+    private int consecutivePoorAccuracy;
 
     public OutlierDetector() {
-        this.lastOutlierReason = OutlierReason.NONE;
         reset();
     }
 
-    /**
-     * Reset detector state - used when setting new anchor or after long gaps
-     */
-    public synchronized void reset() {
+    public void reset() {
         synchronized (lock) {
             lastOutlierReason = OutlierReason.NONE;
+            lastValidLocation = null;
+            lastValidTime = 0L;
+            consecutivePoorAccuracy = 0;
             Log.d(TAG, "Outlier detector reset");
         }
     }
 
-    /**
-     * Main outlier detection method - FIXED VERSION
-     *
-     * @param current   Current GPS location to validate
-     * @param previous  Previous GPS location for comparison
-     * @param timeDelta Time difference between locations in milliseconds
-     * @return true if the current location is detected as an outlier
-     */
-    public boolean isOutlier(Location current, Location previous, long timeDelta) {
+    public boolean isOutlier(Location current, Location previous, long timeDeltaMs) {
         synchronized (lock) {
 
             if (isNull(current)) {
@@ -88,12 +58,11 @@ public class OutlierDetector {
 
             if (isNull(previous)) {
                 lastOutlierReason = OutlierReason.NONE;
-                updateBaselineMetricsInternal(current);
+                updateBaseline(current);
                 return false;
             }
 
-            double timeDeltaSeconds = timeDelta / 1000.0;
-
+            double timeDeltaSeconds = timeDeltaMs / 1000.0;
             if (!isValidTimeDelta(timeDeltaSeconds)) {
                 lastOutlierReason = OutlierReason.INVALID_TIME_DELTA;
                 return true;
@@ -115,121 +84,103 @@ public class OutlierDetector {
             }
 
             lastOutlierReason = OutlierReason.NONE;
-
-            updateBaselineMetricsInternal(current);
-
+            updateBaseline(current);
             return false;
         }
     }
 
-    /**
-     * Validate time delta between GPS fixes
-     */
-    private boolean isValidTimeDelta(double timeDeltaSeconds) {
-        return timeDeltaSeconds >= MIN_TIME_DELTA_SECONDS &&
-                timeDeltaSeconds <= MAX_TIME_DELTA_SECONDS;
+    public OutlierReason getLastOutlierReason() {
+        synchronized (lock) {
+            return lastOutlierReason;
+        }
     }
 
-    /**
-     * Check if GPS accuracy is acceptable
-     */
+    private boolean isValidTimeDelta(double dt) {
+        return dt >= MIN_TIME_DELTA_SECONDS && dt <= MAX_TIME_DELTA_SECONDS;
+    }
+
     private boolean isAccuracyAcceptable(Location location) {
         if (!location.hasAccuracy()) {
-            // No accuracy information available - be conservative
-            Log.w(TAG, "Location has no accuracy information");
-            return true; // Allow but log warning
+            Log.w(TAG, "Location missing accuracy; allowing conservatively");
+            return true;
         }
 
-        float accuracy = location.getAccuracy();
+        float acc = location.getAccuracy();
 
-        // Reject obviously poor accuracy
-        if (accuracy > MAX_ACCURACY_METERS) {
-            Log.d(TAG, String.format("Rejecting location with poor accuracy: %.1fm > %.1fm",
-                    accuracy, MAX_ACCURACY_METERS));
+        if (acc > MAX_ACCURACY_METERS) {
+            Log.d(TAG, String.format(Locale.US,
+                    "Reject: accuracy %.1fm > %.1fm", acc, MAX_ACCURACY_METERS));
             return false;
         }
 
-        // Additional check for very poor accuracy with consecutive outliers
-        if (accuracy > PREFERRED_ACCURACY) {
-            Log.d(TAG, String.format("Rejecting location due to consecutive poor accuracy: %.1fm", accuracy));
-            return false;
+        if (acc > PREFERRED_ACCURACY) {
+            consecutivePoorAccuracy++;
+            Log.d(TAG, String.format(Locale.US,
+                    "Poor accuracy %.1fm (streak %d)", acc, consecutivePoorAccuracy));
+            if (consecutivePoorAccuracy >= MAX_CONSECUTIVE_POOR_ACCURACY) {
+                Log.d(TAG, "Reject: exceeded consecutive poor accuracy limit");
+                return false;
+            }
+            return true; // Allow a few in a row
         }
 
+        // Good accuracy resets streak
+        consecutivePoorAccuracy = 0;
         return true;
     }
 
-    /**
-     * Speed-based rejection - reject positions requiring >50 knots movement
-     */
-    private boolean isSpeedReasonable(Location current, Location previous, double timeDeltaSeconds) {
+    private boolean isSpeedReasonable(Location current, Location previous, double dt) {
         double distance = current.distanceTo(previous);
-        double speed = distance / timeDeltaSeconds; // m/s
+        double speed = distance / dt;
 
-        // Check against maximum possible speed
         if (speed > MAX_SPEED_MPS) {
-            Log.d(TAG, String.format("Rejecting location due to excessive speed: %.1f m/s (%.1f knots) > %.1f knots",
+            Log.d(TAG, String.format(Locale.US,
+                    "Reject: speed %.1f m/s (%.1f kt) > %.1f kt",
                     speed, speed / 0.514444, MAX_SPEED_KNOTS));
             return false;
         }
 
-        // Additional check: if speed is very high and accuracy is poor, be more strict
         if (speed > REASONABLE_SPEED_MPS) {
-            float currentAccuracy = current.hasAccuracy() ? current.getAccuracy() : Float.MAX_VALUE;
-            float previousAccuracy = previous.hasAccuracy() ? previous.getAccuracy() : Float.MAX_VALUE;
-            float combinedAccuracy = Math.max(currentAccuracy, previousAccuracy);
-
-            // If combined accuracy is poor and speed is high, likely an outlier
-            if (combinedAccuracy > PREFERRED_ACCURACY) {
-                Log.d(TAG, String.format("Rejecting high speed location with poor accuracy: %.1f m/s, accuracy %.1fm",
-                        speed, combinedAccuracy));
+            float curAcc = current.hasAccuracy() ? current.getAccuracy() : Float.MAX_VALUE;
+            float prevAcc = previous.hasAccuracy() ? previous.getAccuracy() : Float.MAX_VALUE;
+            float combined = Math.max(curAcc, prevAcc);
+            if (combined > PREFERRED_ACCURACY) {
+                Log.d(TAG, String.format(Locale.US,
+                        "Reject: high speed %.1f m/s with poor acc %.1fm", speed, combined));
                 return false;
             }
         }
-
         return true;
     }
 
-    /**
-     * Geometric validation - check position consistency with expected movement
-     * FIXED: Proper state management and calculations
-     */
-    private boolean isGeometricallyConsistent(Location current, Location previous, double timeDeltaSeconds) {
-        // If we have a valid last location, check acceleration consistency
+    private boolean isGeometricallyConsistent(Location current, Location previous, double dtCurrent) {
         if (lastValidLocation != null && lastValidTime > 0) {
-            double previousTimeDelta = (previous.getTime() - lastValidTime) / 1000.0;
-
-            if (previousTimeDelta > MIN_TIME_DELTA_SECONDS && previousTimeDelta < MAX_TIME_DELTA_SECONDS) {
-                // Calculate previous and current velocities
-                double previousDistance = previous.distanceTo(lastValidLocation);
-                double currentDistance = current.distanceTo(previous);
-
-                double previousSpeed = previousDistance / previousTimeDelta;
-                double currentSpeed = currentDistance / timeDeltaSeconds;
-
-                // Calculate acceleration
-                double acceleration = Math.abs(currentSpeed - previousSpeed) / timeDeltaSeconds;
-
+            double dtPrev = (previous.getTime() - lastValidTime) / 1000.0;
+            if (dtPrev > MIN_TIME_DELTA_SECONDS && dtPrev < MAX_TIME_DELTA_SECONDS) {
+                double prevDist = previous.distanceTo(lastValidLocation);
+                double currDist = current.distanceTo(previous);
+                double prevSpeed = prevDist / dtPrev;
+                double currSpeed = currDist / dtCurrent;
+                double acceleration = Math.abs(currSpeed - prevSpeed) / dtCurrent;
                 if (acceleration > MAX_ACCELERATION_MPS2) {
-                    Log.d(TAG, String.format("Rejecting location due to excessive acceleration: %.2f m/s²", acceleration));
+                    Log.d(TAG, String.format(Locale.US,
+                            "Reject: acceleration %.2f m/s^2 > %.2f",
+                            acceleration, MAX_ACCELERATION_MPS2));
                     return false;
                 }
             }
         }
-
         return true;
     }
 
-    private void updateBaselineMetricsInternal(Location location) {
-        if (isNull(location)) {
-            return;
-        }
-
-        long currentTime = location.getTime();
-
-        // Update last valid location
+    private void updateBaseline(Location location) {
+        if (isNull(location)) return;
         lastValidLocation = new Location(location);
-        lastValidTime = currentTime;
-
+        lastValidTime = location.getTime();
+        // Reset poor accuracy streak only if accuracy is good
+        if (location.hasAccuracy() && location.getAccuracy() <= PREFERRED_ACCURACY) {
+            consecutivePoorAccuracy = 0;
+        }
     }
 
     public enum OutlierReason {
@@ -242,8 +193,8 @@ public class OutlierDetector {
 
         private final String description;
 
-        OutlierReason(String description) {
-            this.description = description;
+        OutlierReason(String d) {
+            this.description = d;
         }
 
         public String getDescription() {
