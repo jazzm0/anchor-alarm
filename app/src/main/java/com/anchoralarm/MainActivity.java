@@ -229,7 +229,7 @@ public class MainActivity extends AppCompatActivity {
         if (!isNull(constellationMonitor)) {
 
             if (!isNull(satelliteCountText)) {
-                satelliteCountText.setText(String.valueOf(constellationMonitor.getTotalSatellites()));
+                satelliteCountText.setText(String.format(ENGLISH, "%d/%d", constellationMonitor.getTotalUsedInFix(), constellationMonitor.getTotalSatellites()));
             }
 
             if (!isNull(accuracyText)) {

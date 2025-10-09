@@ -52,7 +52,7 @@ public class LocationService extends Service {
         trackRepository = new LocationTrackRepository(this);
 
         constellationMonitor = new GNSSConstellationMonitor();
-        setupGnssStatusCallback();
+        setupGNSSStatusCallback();
     }
 
     @Override
@@ -98,14 +98,12 @@ public class LocationService extends Service {
         }
     }
 
-    private void setupGnssStatusCallback() {
+    private void setupGNSSStatusCallback() {
         gnssStatusCallback = new GnssStatus.Callback() {
             @Override
-            public void onSatelliteStatusChanged(GnssStatus status) {
+            public void onSatelliteStatusChanged(@NonNull GnssStatus status) {
                 if (!isNull(constellationMonitor)) {
                     constellationMonitor.processGNSSStatus(status);
-                    // Update foreground notification with constellation info
-                    updateForegroundNotification();
                 }
             }
 
@@ -132,29 +130,12 @@ public class LocationService extends Service {
 
         String contentText = "Monitoring boat position";
 
-        // Add constellation info if available
-        if (!isNull(constellationMonitor)) {
-            int totalSats = constellationMonitor.getTotalSatellites();
-            int usedSats = constellationMonitor.getTotalUsedInFix();
-            if (totalSats > 0) {
-                contentText = String.format("Monitoring - %d/%d satellites", usedSats, totalSats);
-            }
-        }
-
         return new NotificationCompat.Builder(this, "ANCHOR_ALARM_CHANNEL")
                 .setContentTitle("Anchor Alarm Running")
                 .setContentText(contentText)
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
                 .setContentIntent(pendingIntent)
                 .build();
-    }
-
-    private void updateForegroundNotification() {
-        Notification notification = buildForegroundNotification();
-        NotificationManager notificationManager = getSystemService(NotificationManager.class);
-        if (!isNull(notificationManager)) {
-            notificationManager.notify(1, notification);
-        }
     }
 
     private void startLocationUpdates() {
