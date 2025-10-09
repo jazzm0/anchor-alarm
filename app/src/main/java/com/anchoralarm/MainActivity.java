@@ -91,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
 
     private final GnssStatus.Callback gnssStatusCallback = new GnssStatus.Callback() {
         @Override
-        public void onSatelliteStatusChanged(GnssStatus status) {
+        public void onSatelliteStatusChanged(@NonNull GnssStatus status) {
             constellationMonitor.processGNSSStatus(status);
             updateStatusDisplay();
         }

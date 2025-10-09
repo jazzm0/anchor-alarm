@@ -46,7 +46,6 @@ components.
 ```
 com.anchoralarm.location/
 ├── GNSSConstellationMonitor.java ✅
-└── [Next Phase Components]
 ```
 
 ---
