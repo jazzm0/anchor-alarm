@@ -152,7 +152,7 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
         createWatchDogNotificationChannel();
 
         // Load saved anchor point and parameters
-        if (prefs.contains(PREF_ANCHOR_LAT) && prefs.contains(PREF_ANCHOR_LON) && isWatchdogServiceRunning) {
+        if (prefs.contains(PREF_ANCHOR_LAT) && prefs.contains(PREF_ANCHOR_LON)) {
             anchorLocation = new Location("");
             anchorLocation.setLatitude(prefs.getFloat(PREF_ANCHOR_LAT, 0));
             anchorLocation.setLongitude(prefs.getFloat(PREF_ANCHOR_LON, 0));
@@ -163,7 +163,11 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
             // Show saved values in input fields
             anchorDepthInput.setText(String.valueOf(anchorDepth));
             chainLengthInput.setText(String.valueOf(chainLength));
-
+            
+            // Restart watchdog service with saved anchor
+            startWatchdogService();
+            bindToWatchdogService();
+            isWatchdogServiceRunning = true;
         }
 
         toggleAnchorButton.setOnClickListener(v -> {
