@@ -24,6 +24,7 @@ import com.anchoralarm.MainActivity;
 import com.anchoralarm.R;
 import com.anchoralarm.location.filter.KalmanLocationFilter;
 import com.anchoralarm.location.filter.OutlierDetector;
+import com.anchoralarm.location.filter.WeightedAveragingSmoother;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,6 +48,7 @@ public class LocationService extends Service {
     // Filtering
     private final KalmanLocationFilter kalmanLocationFilter = new KalmanLocationFilter();
     private final OutlierDetector outlierDetector = new OutlierDetector();
+    private final WeightedAveragingSmoother weightedSmoother = new WeightedAveragingSmoother();
 
     private final List<LocationUpdateListener> listeners = new ArrayList<>();
     private Location previousRawLocation;
@@ -130,12 +132,24 @@ public class LocationService extends Service {
                     Log.d(TAG, "Outlier rejected");
                     return;
                 }
+                Log.d(TAG, "Raw lat=" + current.getLatitude() +
+                        " lon=" + current.getLongitude() +
+                        " acc=" + current.getAccuracy());
+
                 previousRawLocation = current;
-                lastFilteredLocation = kalmanLocationFilter.filter(current, current.getAccuracy());
+
+                // Processing pipeline: Raw -> Kalman Filter -> Weighted Smoother -> Listeners
+                Location kalmanFiltered = kalmanLocationFilter.filter(current, current.getAccuracy());
+                lastFilteredLocation = weightedSmoother.smooth(kalmanFiltered, constellationMonitor);
+
                 notifyLocationUpdate(lastFilteredLocation, constellationMonitor);
-                Log.d(TAG, "Filtered lat=" + lastFilteredLocation.getLatitude() +
+
+                Log.d(TAG, "Smoothed lat=" + lastFilteredLocation.getLatitude() +
                         " lon=" + lastFilteredLocation.getLongitude() +
                         " acc=" + lastFilteredLocation.getAccuracy());
+
+                Log.d("Kalman Statistics: ", kalmanLocationFilter.getStatistics().toString());
+                Log.d("Smoothing Statistics: ", weightedSmoother.getStatistics().toString());
             }
 
             @Override
@@ -203,6 +217,7 @@ public class LocationService extends Service {
     private void resetFilters() {
         outlierDetector.reset();
         kalmanLocationFilter.reset();
+        weightedSmoother.reset();
         previousRawLocation = null;
         lastFilteredLocation = null;
     }
