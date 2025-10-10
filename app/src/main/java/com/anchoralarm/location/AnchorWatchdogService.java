@@ -38,7 +38,6 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
     private static final String TAG = "AnchorWatchdog";
 
-    private Context context;
     private Location anchorLocation;
     private float driftRadius;
     private boolean isAlarmActive = false;
@@ -47,7 +46,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
     private MediaPlayer alarmMediaPlayer;
     private Vibrator vibrator;
     private PowerManager.WakeLock wakeLock;
-    private Handler alarmHandler;
+    private Handler alarmHandler = new Handler();
     private Runnable alarmStopRunnable;
     private Runnable vibrationStopRunnable;
     private final IBinder binder = new AnchorWatchdogService.AnchorWatchdogBinder();
@@ -59,13 +58,6 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
         public AnchorWatchdogService getService() {
             return AnchorWatchdogService.this;
         }
-    }
-
-
-    public AnchorWatchdogService(Context context) {
-        this.context = context;
-        this.alarmHandler = new Handler();
-        acquireWakeLock();
     }
 
     @Override
@@ -101,7 +93,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
     private void acquireWakeLock() {
         if (isNull(wakeLock) || !wakeLock.isHeld()) {
-            PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            PowerManager powerManager = (PowerManager) this.getSystemService(Context.POWER_SERVICE);
             wakeLock = powerManager.newWakeLock(
                     PowerManager.PARTIAL_WAKE_LOCK,
                     "AnchorAlarm::WatchdogWakeLock"
@@ -139,7 +131,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
             if (!isNull(alarmUri)) {
                 alarmMediaPlayer = new MediaPlayer();
-                alarmMediaPlayer.setDataSource(context, alarmUri);
+                alarmMediaPlayer.setDataSource(this, alarmUri);
 
                 AudioAttributes audioAttributes = new AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ALARM)
@@ -147,7 +139,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
                         .build();
                 alarmMediaPlayer.setAudioAttributes(audioAttributes);
 
-                AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+                AudioManager audioManager = (AudioManager) this.getSystemService(Context.AUDIO_SERVICE);
                 int maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM);
                 audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxVolume, 0);
 
@@ -172,7 +164,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
         try {
             stopVibration();
 
-            vibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+            vibrator = (Vibrator) this.getSystemService(Context.VIBRATOR_SERVICE);
             if (!isNull(vibrator) && vibrator.hasVibrator()) {
                 long[] pattern = {0, 1000, 500, 1000, 500, 1000};
                 VibrationEffect effect = VibrationEffect.createWaveform(pattern, 0);
@@ -191,10 +183,10 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
     }
 
     private void showAlarmNotification() {
-        Intent notificationIntent = new Intent(context, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(context, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
+        Intent notificationIntent = new Intent(this, MainActivity.class);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, "ANCHOR_ALARM_CHANNEL")
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, ANCHOR_WATCHDOG_CHANNEL)
                 .setContentTitle("Anchor Alarm")
                 .setContentText("Boat has drifted beyond set radius or GPS disabled!")
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
@@ -204,12 +196,12 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
 
-        NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        NotificationManager notificationManager = (NotificationManager) this.getSystemService(Context.NOTIFICATION_SERVICE);
         notificationManager.notify(2, builder.build());
     }
 
     private void clearAlarmNotification() {
-        NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        NotificationManager notificationManager = (NotificationManager) this.getSystemService(Context.NOTIFICATION_SERVICE);
         if (notificationManager != null) {
             notificationManager.cancel(2);
         }
@@ -300,7 +292,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
     @Override
     public void onCreate() {
         super.onCreate();
-
+        acquireWakeLock();
         Log.i(TAG, "AnchorWatchdogService created");
     }
 

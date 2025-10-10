@@ -80,20 +80,16 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
     private boolean isWatchdogServiceBound = false;
     private GNSSConstellationMonitor currentGnssData;
 
-    private final ServiceConnection serviceConnection = new ServiceConnection() {
+    private final ServiceConnection locationServiceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
-            if (service instanceof LocationService.LocationServiceBinder locationServiceBinder) {
-                locationService = locationServiceBinder.getService();
-                locationService.addListener(MainActivity.this);
-                isLocationServiceBound = true;
-            }
-            if (service instanceof AnchorWatchdogService.AnchorWatchdogBinder watchdogBinder) {
-                watchdogService = watchdogBinder.getService();
+            LocationService.LocationServiceBinder binder = (LocationService.LocationServiceBinder) service;
+            locationService = binder.getService();
+            locationService.addListener(MainActivity.this);
+            if (watchdogService != null) {
                 locationService.addListener(watchdogService);
-                isWatchdogServiceBound = true;
             }
-
+            isLocationServiceBound = true;
             // Get current data from service
             currentGnssData = locationService.getConstellationMonitor();
             updateStatusDisplay();
@@ -103,13 +99,33 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
         public void onServiceDisconnected(ComponentName name) {
             if (locationService != null) {
                 locationService.removeListener(MainActivity.this);
-                locationService.removeListener(anchorWatchdogService);
+                if (watchdogService != null) {
+                    locationService.removeListener(watchdogService);
+                }
             }
             locationService = null;
-            anchorWatchdogService = null;
             isLocationServiceBound = false;
-            currentGnssData = null;
-            Toast.makeText(MainActivity.this, "Disconnected from location service", Toast.LENGTH_SHORT).show();
+        }
+    };
+
+    private final ServiceConnection watchdogServiceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            AnchorWatchdogService.AnchorWatchdogBinder binder = (AnchorWatchdogService.AnchorWatchdogBinder) service;
+            watchdogService = binder.getService();
+            if (locationService != null) {
+                locationService.addListener(watchdogService);
+            }
+            isWatchdogServiceBound = true;
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            if (locationService != null && watchdogService != null) {
+                locationService.removeListener(watchdogService);
+            }
+            watchdogService = null;
+            isWatchdogServiceBound = false;
         }
     };
 
@@ -136,7 +152,7 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
         createWatchDogNotificationChannel();
 
         // Load saved anchor point and parameters
-        if (prefs.contains(PREF_ANCHOR_LAT) && prefs.contains(PREF_ANCHOR_LON)) {
+        if (prefs.contains(PREF_ANCHOR_LAT) && prefs.contains(PREF_ANCHOR_LON) && isWatchdogServiceRunning) {
             anchorLocation = new Location("");
             anchorLocation.setLatitude(prefs.getFloat(PREF_ANCHOR_LAT, 0));
             anchorLocation.setLongitude(prefs.getFloat(PREF_ANCHOR_LON, 0));
@@ -209,12 +225,12 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
 
     private void bindToLocationService() {
         Intent intent = new Intent(this, LocationService.class);
-        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+        bindService(intent, locationServiceConnection, Context.BIND_AUTO_CREATE);
     }
 
     private void bindToWatchdogService() {
         Intent intent = new Intent(this, AnchorWatchdogService.class);
-        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+        bindService(intent, watchdogServiceConnection, Context.BIND_AUTO_CREATE);
     }
 
     private void unbindFromLocationService() {
@@ -222,7 +238,7 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
             if (locationService != null) {
                 locationService.removeListener(this);
             }
-            unbindService(serviceConnection);
+            unbindService(locationServiceConnection);
             isLocationServiceBound = false;
             locationService = null;
             currentGnssData = null;
@@ -232,9 +248,9 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
     private void unbindFromWatchdogService() {
         if (isWatchdogServiceBound) {
             if (watchdogService != null) {
-                locationService.removeListener(this);
+                locationService.removeListener(watchdogService);
             }
-            unbindService(serviceConnection);
+            unbindService(watchdogServiceConnection);
             isWatchdogServiceBound = false;
             watchdogService = null;
         }
@@ -482,10 +498,9 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
     }
 
     private void stopWatchdogService() {
-        new android.os.Handler().postDelayed(() -> {
-            Intent intent = new Intent(this, AnchorWatchdogService.class);
-            stopService(intent);
-        }, 100);
+        unbindFromWatchdogService();
+        Intent intent = new Intent(this, AnchorWatchdogService.class);
+        stopService(intent);
     }
 
     /**
@@ -583,6 +598,7 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .setUsage(android.media.AudioAttributes.USAGE_ALARM)
                 .build();
+
         channel.setSound(alarmSound, audioAttributes);
 
         // Enable vibration for alarm
