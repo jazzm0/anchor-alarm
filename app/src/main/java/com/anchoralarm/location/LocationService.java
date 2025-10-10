@@ -140,9 +140,10 @@ public class LocationService extends Service {
 
                 // Processing pipeline: Raw -> Kalman Filter -> Weighted Smoother -> Listeners
                 Location kalmanFiltered = kalmanLocationFilter.filter(current, current.getAccuracy());
+                // ignore weighted for now
                 lastFilteredLocation = weightedSmoother.smooth(kalmanFiltered, constellationMonitor);
 
-                notifyLocationUpdate(lastFilteredLocation, constellationMonitor);
+                notifyLocationUpdate(kalmanFiltered, constellationMonitor);
 
                 Log.d(TAG, "Smoothed lat=" + lastFilteredLocation.getLatitude() +
                         " lon=" + lastFilteredLocation.getLongitude() +

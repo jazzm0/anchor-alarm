@@ -22,7 +22,7 @@ public class WeightedAveragingSmoother {
     private static final double TIME_DECAY_CONSTANT = 5.0;
     private static final float MIN_WEIGHT = 0.1f;
     private static final float MAX_WEIGHT = 10.0f;
-    private static final boolean ENABLED = false; // Easy disable for testing
+    private static final boolean ENABLED = true; // Easy disable for testing
 
     private final CircularLocationBuffer buffer;
     private final int windowSize;
