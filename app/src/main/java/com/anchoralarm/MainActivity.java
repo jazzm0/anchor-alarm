@@ -1,22 +1,24 @@
 package com.anchoralarm;
 
+import static com.anchoralarm.location.AnchorWatchdogService.ANCHOR_WATCHDOG_CHANNEL;
+import static com.anchoralarm.location.LocationService.LOCATION_SERVICE_CHANNEL;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.isNull;
 
 import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.location.GnssStatus;
 import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.View;
@@ -31,16 +33,18 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.anchoralarm.location.AnchorWatchdogService;
 import com.anchoralarm.location.GNSSConstellationMonitor;
 import com.anchoralarm.location.LocationService;
+import com.anchoralarm.location.LocationUpdateListener;
 import com.anchoralarm.model.LocationTrack;
 import com.anchoralarm.repository.LocationTrackRepository;
 
 import java.util.List;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements LocationUpdateListener {
 
-    public static final String ANCHOR_ALARM_CHANNEL = "ANCHOR_ALARM_CHANNEL";
+
     public static final String INTENT_STOP_ALARM = "STOP_ALARMS";
 
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1;
@@ -52,8 +56,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREF_ANCHOR_DEPTH = "anchorDepth";
     private static final String PREF_CHAIN_LENGTH = "chainLength";
 
-    private GNSSConstellationMonitor constellationMonitor;
-    private LocationManager locationManager;
+    // UI components
     private Location anchorLocation;
     private Location currentLocation;
     private float anchorDepth;
@@ -67,22 +70,46 @@ public class MainActivity extends AppCompatActivity {
     private SwoyRadiusView swoyRadiusView;
     private SharedPreferences prefs;
     private float locationAccuracy = 0.0f;
-    private boolean isLocationServiceRunning = false;
+    private boolean isWatchdogServiceRunning = false;
+    private AnchorWatchdogService anchorWatchdogService;
 
-    private final LocationListener locationListener = new LocationListener() {
+    // Service binding
+    private LocationService locationService;
+    private AnchorWatchdogService watchdogService;
+    private boolean isLocationServiceBound = false;
+    private boolean isWatchdogServiceBound = false;
+    private GNSSConstellationMonitor currentGnssData;
+
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
-        public void onLocationChanged(Location location) {
-            currentLocation = location;
-            locationAccuracy = location.hasAccuracy() ? location.getAccuracy() : 0.0f;
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            if (service instanceof LocationService.LocationServiceBinder locationServiceBinder) {
+                locationService = locationServiceBinder.getService();
+                locationService.addListener(MainActivity.this);
+                isLocationServiceBound = true;
+            }
+            if (service instanceof AnchorWatchdogService.AnchorWatchdogBinder watchdogBinder) {
+                watchdogService = watchdogBinder.getService();
+                locationService.addListener(watchdogService);
+                isWatchdogServiceBound = true;
+            }
+
+            // Get current data from service
+            currentGnssData = locationService.getConstellationMonitor();
             updateStatusDisplay();
         }
-    };
 
-    private final GnssStatus.Callback gnssStatusCallback = new GnssStatus.Callback() {
         @Override
-        public void onSatelliteStatusChanged(@NonNull GnssStatus status) {
-            constellationMonitor.processGNSSStatus(status);
-            updateStatusDisplay();
+        public void onServiceDisconnected(ComponentName name) {
+            if (locationService != null) {
+                locationService.removeListener(MainActivity.this);
+                locationService.removeListener(anchorWatchdogService);
+            }
+            locationService = null;
+            anchorWatchdogService = null;
+            isLocationServiceBound = false;
+            currentGnssData = null;
+            Toast.makeText(MainActivity.this, "Disconnected from location service", Toast.LENGTH_SHORT).show();
         }
     };
 
@@ -90,9 +117,9 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        startLocationService();
+        bindToLocationService();
 
-        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-        constellationMonitor = new GNSSConstellationMonitor();
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
         Button toggleAnchorButton = findViewById(R.id.toggleAnchorButton);
@@ -105,7 +132,8 @@ public class MainActivity extends AppCompatActivity {
         qualityIcon = findViewById(R.id.qualityIcon);
         swoyRadiusView = findViewById(R.id.swoyRadiusView);
 
-        createNotificationChannel();
+        createLocationNotificationChannel();
+        createWatchDogNotificationChannel();
 
         // Load saved anchor point and parameters
         if (prefs.contains(PREF_ANCHOR_LAT) && prefs.contains(PREF_ANCHOR_LON)) {
@@ -120,41 +148,29 @@ public class MainActivity extends AppCompatActivity {
             anchorDepthInput.setText(String.valueOf(anchorDepth));
             chainLengthInput.setText(String.valueOf(chainLength));
 
-            // If anchor is set, service should be running
-            isLocationServiceRunning = true;
-
-            // Restart the location service with saved parameters
-            startLocationService();
-
-            // Update status display
-            updateStatusDisplay();
         }
 
         toggleAnchorButton.setOnClickListener(v -> {
-            if (isLocationServiceRunning) {
+            if (isWatchdogServiceRunning) {
                 // Reset anchor
-                stopLocationService();
                 anchorLocation = null;
-                isLocationServiceRunning = false;
+                currentLocation = null;
+                isWatchdogServiceRunning = false;
                 SharedPreferences.Editor editor = prefs.edit();
                 editor.clear();
                 editor.apply();
 
-                // Clear location tracks
                 LocationTrackRepository trackRepository = new LocationTrackRepository(this);
                 trackRepository.clearTracks();
 
                 // Clear all alarm notifications
                 clearAllNotifications();
 
-                // Update status display - will show current location if available, otherwise "Anchor not set"
-                if (!isNull(currentLocation)) {
-                    updateStatusDisplay();
-                } else {
-                    statusText.setText(getString(R.string.anchor_not_set));
-                    hideSwoyRadiusVisualization();
-                }
+                // Update status display
+                statusText.setText(getString(R.string.anchor_not_set));
+                hideSwoyRadiusVisualization();
                 updateButtonState(toggleAnchorButton);
+                stopWatchdogService();
                 Toast.makeText(this, "Anchor reset and location history cleared", Toast.LENGTH_SHORT).show();
             } else {
                 // Set anchor
@@ -180,56 +196,85 @@ public class MainActivity extends AppCompatActivity {
 
         // Request background location permission for Android 10+
         checkBackgroundLocationPermission();
-
-        // Start location updates if permission is granted
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            startLocationUpdates();
-        }
     }
 
     @Override
-    protected void onResume() {
-        super.onResume();
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            startLocationUpdates();
+    protected void onDestroy() {
+        super.onDestroy();
+        stopLocationService();
+        unbindFromLocationService();
+        stopWatchdogService();
+        unbindFromWatchdogService();
+    }
+
+    private void bindToLocationService() {
+        Intent intent = new Intent(this, LocationService.class);
+        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    private void bindToWatchdogService() {
+        Intent intent = new Intent(this, AnchorWatchdogService.class);
+        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    private void unbindFromLocationService() {
+        if (isLocationServiceBound) {
+            if (locationService != null) {
+                locationService.removeListener(this);
+            }
+            unbindService(serviceConnection);
+            isLocationServiceBound = false;
+            locationService = null;
+            currentGnssData = null;
         }
+    }
+
+    private void unbindFromWatchdogService() {
+        if (isWatchdogServiceBound) {
+            if (watchdogService != null) {
+                locationService.removeListener(this);
+            }
+            unbindService(serviceConnection);
+            isWatchdogServiceBound = false;
+            watchdogService = null;
+        }
+    }
+
+    // LocationUpdateListener implementation
+    @Override
+    public void onLocationUpdate(Location filteredLocation, GNSSConstellationMonitor gnssData) {
+        runOnUiThread(() -> {
+            currentLocation = filteredLocation;
+            locationAccuracy = filteredLocation.hasAccuracy() ? filteredLocation.getAccuracy() : 0.0f;
+            currentGnssData = gnssData;
+            updateStatusDisplay();
+        });
     }
 
     @Override
-    protected void onPause() {
-        super.onPause();
-        stopLocationUpdates();
-    }
-
-    private void startLocationUpdates() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
-        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1, locationListener);
-        locationManager.registerGnssStatusCallback(gnssStatusCallback, null);
-    }
-
-    private void stopLocationUpdates() {
-        locationManager.removeUpdates(locationListener);
-        locationManager.unregisterGnssStatusCallback(gnssStatusCallback);
+    public void onProviderStatusChange(boolean enabled) {
+        runOnUiThread(() -> {
+            if (!enabled) {
+                Toast.makeText(this, "GPS disabled - anchor monitoring may not work properly", Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private void updateStatusDisplay() {
-        if (!isNull(constellationMonitor)) {
-
+        if (!isNull(currentGnssData)) {
             if (!isNull(satelliteCountText)) {
-                satelliteCountText.setText(String.format(ENGLISH, "%d/%d", constellationMonitor.getTotalUsedInFix(), constellationMonitor.getTotalSatellites()));
-            }
-
-            if (!isNull(accuracyText)) {
-                accuracyText.setText(String.format(ENGLISH, "%.1fm", locationAccuracy));
+                satelliteCountText.setText(String.format(ENGLISH, "%d/%d", currentGnssData.getTotalUsedInFix(), currentGnssData.getTotalSatellites()));
             }
 
             if (!isNull(qualityText)) {
-                int signalQuality = constellationMonitor.getOverallSignalQuality();
+                int signalQuality = currentGnssData.getOverallSignalQuality();
                 qualityText.setText(String.format(ENGLISH, "%d%%", signalQuality));
                 updateSignalQualityIcon(signalQuality);
             }
+        }
+
+        if (!isNull(accuracyText)) {
+            accuracyText.setText(String.format(ENGLISH, "%.1fm", locationAccuracy));
         }
 
         if (!isNull(anchorLocation)) {
@@ -311,7 +356,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateButtonState(Button toggleButton) {
-        if (isLocationServiceRunning) {
+        if (isWatchdogServiceRunning) {
             toggleButton.setText(getString(R.string.reset_anchor));
         } else {
             toggleButton.setText(getString(R.string.set_anchor));
@@ -334,7 +379,6 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startLocationUpdates();
                 setAnchorPoint();
             } else {
                 Toast.makeText(this, "Location permission denied", Toast.LENGTH_SHORT).show();
@@ -375,11 +419,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setAnchorPoint(Button toggleButton) {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED) {
-            return;
+        // Get current location from service if available, otherwise use a fallback
+        Location location = null;
+        if (isLocationServiceBound && locationService != null) {
+            // Try to get last known location through the service
+            // For now, we'll use currentLocation if available
+            location = currentLocation;
         }
-        Location location = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+
+        // Fallback to LocationManager if service location not available
+        if (location == null) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                    == PackageManager.PERMISSION_GRANTED) {
+                android.location.LocationManager locationManager = (android.location.LocationManager) getSystemService(Context.LOCATION_SERVICE);
+                location = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER);
+            }
+        }
+
         if (!isNull(location)) {
             anchorLocation = location;
             currentLocation = location;
@@ -391,8 +447,10 @@ public class MainActivity extends AppCompatActivity {
             editor.putFloat(PREF_CHAIN_LENGTH, chainLength);
             editor.apply();
             updateStatusDisplay();
-            startLocationService();
-            isLocationServiceRunning = true;
+
+            startWatchdogService();
+            bindToWatchdogService();
+            isWatchdogServiceRunning = true;
             updateButtonState(toggleButton);
         } else {
             Toast.makeText(this, "Unable to get location. Ensure GPS is enabled.", Toast.LENGTH_SHORT).show();
@@ -407,19 +465,25 @@ public class MainActivity extends AppCompatActivity {
 
     private void startLocationService() {
         Intent intent = new Intent(this, LocationService.class);
+        startForegroundService(intent);
+    }
+
+    private void stopLocationService() {
+        Intent intent = new Intent(this, LocationService.class);
+        stopService(intent);
+    }
+
+    private void startWatchdogService() {
+        Intent intent = new Intent(this, AnchorWatchdogService.class);
         intent.putExtra("anchorLat", anchorLocation.getLatitude());
         intent.putExtra("anchorLon", anchorLocation.getLongitude());
         intent.putExtra("radius", driftRadius);
         startForegroundService(intent);
     }
 
-    private void stopLocationService() {
-        Intent stopAlarmsIntent = new Intent(this, LocationService.class);
-        stopAlarmsIntent.setAction(INTENT_STOP_ALARM);
-        startService(stopAlarmsIntent);
-
+    private void stopWatchdogService() {
         new android.os.Handler().postDelayed(() -> {
-            Intent intent = new Intent(this, LocationService.class);
+            Intent intent = new Intent(this, AnchorWatchdogService.class);
             stopService(intent);
         }, 100);
     }
@@ -489,9 +553,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Clear all notifications when anchor is reset
-     */
     private void clearAllNotifications() {
         NotificationManager notificationManager = getSystemService(NotificationManager.class);
         if (!isNull(notificationManager)) {
@@ -499,14 +560,24 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void createNotificationChannel() {
+    private void createLocationNotificationChannel() {
         NotificationChannel channel = new NotificationChannel(
-                ANCHOR_ALARM_CHANNEL,
-                "Anchor Alarm",
+                LOCATION_SERVICE_CHANNEL,
+                "Location Service",
+                NotificationManager.IMPORTANCE_HIGH);
+        channel.setDescription("Notifications for Location Service");
+
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        manager.createNotificationChannel(channel);
+    }
+
+    private void createWatchDogNotificationChannel() {
+        NotificationChannel channel = new NotificationChannel(
+                ANCHOR_WATCHDOG_CHANNEL,
+                "Anchor Watchdog Alarm",
                 NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("Notifications for anchor drift alerts");
 
-        // Configure sound for alarm notifications
         android.net.Uri alarmSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM);
         android.media.AudioAttributes audioAttributes = new android.media.AudioAttributes.Builder()
                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)

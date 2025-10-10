@@ -3,7 +3,6 @@ package com.anchoralarm.location;
 import static java.util.Objects.isNull;
 
 import android.app.Notification;
-import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
@@ -11,110 +10,93 @@ import android.location.GnssStatus;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
-import android.media.AudioAttributes;
-import android.media.AudioManager;
-import android.media.MediaPlayer;
-import android.media.RingtoneManager;
-import android.net.Uri;
+import android.os.Binder;
 import android.os.IBinder;
-import android.os.PowerManager;
-import android.os.VibrationEffect;
-import android.os.Vibrator;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 
 import com.anchoralarm.MainActivity;
+import com.anchoralarm.R;
 import com.anchoralarm.location.filter.KalmanLocationFilter;
 import com.anchoralarm.location.filter.OutlierDetector;
 import com.anchoralarm.repository.LocationTrackRepository;
 
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Standalone LocationService that provides filtered GPS location data to registered listeners
+ * Handles GPS tracking, filtering, and GNSS monitoring without any alarm functionality
+ */
 public class LocationService extends Service {
+
+    public static final String LOCATION_SERVICE_CHANNEL = "LOCATION_SERVICE_CHANNEL";
 
     private static final String TAG = "LocationService";
     private static final int LOCATION_UPDATE_MIN_TIME = 1000;
+
+    // Core location components
     private LocationManager locationManager;
     private LocationListener locationListener;
-    private Location anchorLocation;
     private Location previousLocation;
-    private float driftRadius;
-    private MediaPlayer alarmMediaPlayer;
-    private Vibrator vibrator;
-    private PowerManager.WakeLock wakeLock;
-    private android.os.Handler alarmHandler;
-    private Runnable alarmStopRunnable;
-    private Runnable vibrationStopRunnable;
-    private boolean isAlarmActive = false;
     private LocationTrackRepository trackRepository;
     private GNSSConstellationMonitor constellationMonitor;
     private GnssStatus.Callback gnssStatusCallback;
+
+    // Filtering components
     private final KalmanLocationFilter kalmanLocationFilter = new KalmanLocationFilter();
     private final OutlierDetector outlierDetector = new OutlierDetector();
+
+    // Listener management
+    private final List<LocationUpdateListener> listeners = new ArrayList<>();
+
+    /**
+     * Binder for client components to interact with the service
+     */
+    public class LocationServiceBinder extends Binder {
+        public LocationService getService() {
+            return LocationService.this;
+        }
+    }
+
+    private final IBinder binder = new LocationServiceBinder();
 
     @Override
     public void onCreate() {
         super.onCreate();
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-        alarmHandler = new android.os.Handler();
         trackRepository = new LocationTrackRepository(this);
-
         constellationMonitor = new GNSSConstellationMonitor();
+
+        // Create and register the watchdog as a listener
+
+
         reset();
         setupGNSSStatusCallback();
+
+        Log.i(TAG, "LocationService created");
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (!isNull(intent) && "STOP_ALARMS".equals(intent.getAction())) {
-            stopAllAlarms();
-            isAlarmActive = false;
-            // Clear alarm notification
-            NotificationManager notificationManager = getSystemService(NotificationManager.class);
-            if (notificationManager != null) {
-                notificationManager.cancel(2); // Cancel the alarm notification
-            }
-            return START_NOT_STICKY;
-        }
-
         reset();
 
-        double anchorLat = intent.getDoubleExtra("anchorLat", 0);
-        double anchorLon = intent.getDoubleExtra("anchorLon", 0);
-        driftRadius = intent.getFloatExtra("radius", 0);
-
-        anchorLocation = new Location("");
-        anchorLocation.setLatitude(anchorLat);
-        anchorLocation.setLongitude(anchorLon);
-
-        acquireWakeLock();
-
+        // Start foreground service
         startForeground(1, buildForegroundNotification());
+
+        // Start location tracking
         startLocationUpdates();
+
+        Log.i(TAG, "LocationService started! ");
+
         return START_STICKY;
     }
 
     private void reset() {
         outlierDetector.reset();
         kalmanLocationFilter.reset();
-    }
-
-    private void acquireWakeLock() {
-        if (isNull(wakeLock) || !wakeLock.isHeld()) {
-            PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
-            wakeLock = powerManager.newWakeLock(
-                    PowerManager.PARTIAL_WAKE_LOCK,
-                    "AnchorAlarm::LocationWakeLock"
-            );
-            wakeLock.acquire(24 * 60 * 60 * 1000L);
-        }
-    }
-
-    private void releaseWakeLock() {
-        if (!isNull(wakeLock) && wakeLock.isHeld()) {
-            wakeLock.release();
-            wakeLock = null;
-        }
     }
 
     private void setupGNSSStatusCallback() {
@@ -132,12 +114,10 @@ public class LocationService extends Service {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
-        String contentText = "Monitoring boat position";
-
-        return new NotificationCompat.Builder(this, "ANCHOR_ALARM_CHANNEL")
-                .setContentTitle("Anchor Alarm Running")
-                .setContentText(contentText)
-                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+        return new NotificationCompat.Builder(this, LOCATION_SERVICE_CHANNEL)
+                .setContentTitle("Location Service Running")
+                .setContentText("Monitoring boat position")
+                .setSmallIcon(R.drawable.ic_location_accuracy)
                 .setContentIntent(pendingIntent)
                 .build();
     }
@@ -146,38 +126,40 @@ public class LocationService extends Service {
         locationListener = new LocationListener() {
             @Override
             public void onLocationChanged(@NonNull Location currentLocation) {
+                // Apply outlier detection
                 if (!isNull(previousLocation) && outlierDetector.isOutlier(currentLocation, previousLocation, currentLocation.getTime() - previousLocation.getTime())) {
+                    Log.d(TAG, "Location rejected as outlier");
                     return; // Reject outlier
                 }
                 previousLocation = currentLocation;
 
-                var filteredLocation = kalmanLocationFilter.filter(currentLocation, currentLocation.getAccuracy());
+                // Apply Kalman filtering
+                Location filteredLocation = kalmanLocationFilter.filter(currentLocation, currentLocation.getAccuracy());
 
-                trackRepository.addLocationTrack(filteredLocation);
+                // Store in database
+                trackRepository.addLocationTrack(currentLocation);
 
-                float distance = filteredLocation.distanceTo(anchorLocation);
-                if (distance > driftRadius) {
-                    if (!isAlarmActive) {
-                        triggerAlarm();
-                    }
-                } else {
-                    if (isAlarmActive) {
-                        stopAllAlarms();
-                        isAlarmActive = false;
-                    }
-                }
+                // Notify all listeners
+                notifyLocationUpdate(currentLocation, constellationMonitor);
+
+                Log.d(TAG, "Location update: " + filteredLocation.getLatitude() + "," + filteredLocation.getLongitude() +
+                        " accuracy=" + filteredLocation.getAccuracy());
             }
 
             @Override
             public void onProviderDisabled(@NonNull String provider) {
-                stopSelf();
-                reset();
-                if (!isAlarmActive) {
-                    triggerAlarm();
-                }
+                Log.w(TAG, "GPS provider disabled");
+                notifyProviderStatusChange(false);
+            }
+
+            @Override
+            public void onProviderEnabled(@NonNull String provider) {
+                Log.i(TAG, "GPS provider enabled");
+                notifyProviderStatusChange(true);
             }
         };
 
+        // Start GPS location updates
         if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
             locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
@@ -185,6 +167,7 @@ public class LocationService extends Service {
                     0,
                     locationListener);
 
+            // Also use network provider if available
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                         LocationManager.NETWORK_PROVIDER,
@@ -193,175 +176,112 @@ public class LocationService extends Service {
                         locationListener);
             }
 
+            // Register GNSS status callback
             if (gnssStatusCallback != null) {
                 locationManager.registerGnssStatusCallback(gnssStatusCallback);
             }
+
+            Log.i(TAG, "Location updates started");
+        } else {
+            Log.e(TAG, "Location permission not granted");
         }
     }
 
-    private void triggerAlarm() {
-        isAlarmActive = true;
-        playAlarmSound();
-        triggerVibration();
-
-        Intent notificationIntent = new Intent(this, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
-
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "ANCHOR_ALARM_CHANNEL")
-                .setContentTitle("Anchor Alarm")
-                .setContentText("Boat has drifted beyond set radius or GPS disabled!")
-                .setSmallIcon(android.R.drawable.ic_dialog_alert)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setContentIntent(pendingIntent)
-                .setAutoCancel(true)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
-
-        NotificationManager notificationManager = getSystemService(NotificationManager.class);
-        notificationManager.notify(2, builder.build());
-    }
-
-    private void playAlarmSound() {
-        try {
-            stopAlarmSound();
-
-            Uri alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-            if (isNull(alarmUri)) {
-                alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+    /**
+     * Add a listener to receive location updates
+     */
+    public void addListener(LocationUpdateListener listener) {
+        synchronized (listeners) {
+            if (!listeners.contains(listener)) {
+                listeners.add(listener);
+                Log.i(TAG, "Added listener: " + listener.getClass().getSimpleName());
             }
-            if (isNull(alarmUri)) {
-                alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-            }
-
-            if (!isNull(alarmUri)) {
-                alarmMediaPlayer = new MediaPlayer();
-                alarmMediaPlayer.setDataSource(this, alarmUri);
-
-                AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build();
-                alarmMediaPlayer.setAudioAttributes(audioAttributes);
-
-                AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
-                int maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM);
-                audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxVolume, 0);
-
-                alarmMediaPlayer.setLooping(true);
-                alarmMediaPlayer.prepare();
-                alarmMediaPlayer.start();
-
-                if (!isNull(alarmStopRunnable)) {
-                    alarmHandler.removeCallbacks(alarmStopRunnable);
-                }
-                alarmStopRunnable = () -> {
-                    stopAlarmSound();
-                    isAlarmActive = false;
-                };
-                alarmHandler.postDelayed(alarmStopRunnable, 5 * 60 * 1000);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error playing alarm sound", e);
         }
     }
 
-    private void triggerVibration() {
-        try {
-            stopVibration();
-
-            vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
-            if (!isNull(vibrator) && vibrator.hasVibrator()) {
-                long[] pattern = {0, 1000, 500, 1000, 500, 1000};
-                VibrationEffect effect = VibrationEffect.createWaveform(pattern, 0);
-                vibrator.vibrate(effect);
-
-                if (!isNull(vibrationStopRunnable)) {
-                    alarmHandler.removeCallbacks(vibrationStopRunnable);
-                }
-                vibrationStopRunnable = this::stopVibration;
-                alarmHandler.postDelayed(vibrationStopRunnable, 30000);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error triggering vibration", e);
+    /**
+     * Remove a listener
+     */
+    public void removeListener(LocationUpdateListener listener) {
+        synchronized (listeners) {
+            listeners.remove(listener);
+            Log.i(TAG, "Removed listener: " + listener.getClass().getSimpleName());
         }
     }
 
-    private void stopAlarmSound() {
-        try {
-            if (!isNull(alarmStopRunnable) && !isNull(alarmHandler)) {
-                alarmHandler.removeCallbacks(alarmStopRunnable);
-                alarmStopRunnable = null;
-            }
-
-            if (!isNull(alarmMediaPlayer)) {
+    /**
+     * Notify all listeners of location updates
+     */
+    private void notifyLocationUpdate(Location filteredLocation, GNSSConstellationMonitor gnssData) {
+        synchronized (listeners) {
+            for (LocationUpdateListener listener : listeners) {
                 try {
-                    if (alarmMediaPlayer.isPlaying()) {
-                        alarmMediaPlayer.stop();
-                    }
-                } catch (IllegalStateException e) {
-                    Log.w(TAG, "MediaPlayer was in invalid state when stopping", e);
-                }
-                try {
-                    alarmMediaPlayer.release();
+                    listener.onLocationUpdate(filteredLocation, gnssData);
                 } catch (Exception e) {
-                    Log.w(TAG, "Error releasing MediaPlayer", e);
+                    Log.e(TAG, "Error notifying listener " + listener.getClass().getSimpleName(), e);
                 }
-                alarmMediaPlayer = null;
             }
-        } catch (Exception e) {
-            Log.e(TAG, "Error stopping alarm sound", e);
-            alarmMediaPlayer = null;
         }
     }
 
-    private void stopVibration() {
-        try {
-            if (!isNull(vibrationStopRunnable) && !isNull(alarmHandler)) {
-                alarmHandler.removeCallbacks(vibrationStopRunnable);
-                vibrationStopRunnable = null;
+    /**
+     * Notify all listeners of GPS provider status changes
+     */
+    private void notifyProviderStatusChange(boolean enabled) {
+        synchronized (listeners) {
+            for (LocationUpdateListener listener : listeners) {
+                try {
+                    listener.onProviderStatusChange(enabled);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error notifying listener " + listener.getClass().getSimpleName(), e);
+                }
             }
-
-            if (!isNull(vibrator)) {
-                vibrator.cancel();
-                vibrator = null;
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error stopping vibration", e);
-            vibrator = null;
         }
     }
 
-    public void stopAllAlarms() {
-        stopAlarmSound();
-        stopVibration();
+    /**
+     * Get current GNSS constellation monitor data
+     */
+    public GNSSConstellationMonitor getConstellationMonitor() {
+        return constellationMonitor;
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        stopAllAlarms();
-        reset();
 
+        Log.i(TAG, "LocationService destroying");
+
+        // Stop location updates
         if (!isNull(locationListener)) {
             locationManager.removeUpdates(locationListener);
             locationListener = null;
         }
 
+        // Unregister GNSS callback
         if (!isNull(gnssStatusCallback)) {
             locationManager.unregisterGnssStatusCallback(gnssStatusCallback);
             gnssStatusCallback = null;
         }
 
-        releaseWakeLock();
 
-        if (!isNull(alarmHandler)) {
-            alarmHandler.removeCallbacksAndMessages(null);
-            alarmHandler = null;
+        // Clear listeners
+        synchronized (listeners) {
+            listeners.clear();
         }
+
+        Log.i(TAG, "LocationService destroyed");
     }
 
     @Override
     public IBinder onBind(Intent intent) {
-        return null;
+        Log.i(TAG, "LocationService bound");
+        return binder;
+    }
+
+    @Override
+    public boolean onUnbind(Intent intent) {
+        Log.i(TAG, "LocationService unbound");
+        return super.onUnbind(intent);
     }
 }
