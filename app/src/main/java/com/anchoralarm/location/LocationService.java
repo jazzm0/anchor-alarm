@@ -21,7 +21,6 @@ import com.anchoralarm.MainActivity;
 import com.anchoralarm.R;
 import com.anchoralarm.location.filter.KalmanLocationFilter;
 import com.anchoralarm.location.filter.OutlierDetector;
-import com.anchoralarm.repository.LocationTrackRepository;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,7 +40,7 @@ public class LocationService extends Service {
     private LocationManager locationManager;
     private LocationListener locationListener;
     private Location previousLocation;
-    private LocationTrackRepository trackRepository;
+
     private GNSSConstellationMonitor constellationMonitor;
     private GnssStatus.Callback gnssStatusCallback;
 
@@ -67,7 +66,7 @@ public class LocationService extends Service {
     public void onCreate() {
         super.onCreate();
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-        trackRepository = new LocationTrackRepository(this);
+
         constellationMonitor = new GNSSConstellationMonitor();
 
         // Create and register the watchdog as a listener
@@ -135,12 +134,9 @@ public class LocationService extends Service {
 
                 // Apply Kalman filtering
                 Location filteredLocation = kalmanLocationFilter.filter(currentLocation, currentLocation.getAccuracy());
-
-                // Store in database
-                trackRepository.addLocationTrack(currentLocation);
-
+                Log.d(TAG, "Filter statistics" + kalmanLocationFilter.getStatistics());
                 // Notify all listeners
-                notifyLocationUpdate(currentLocation, constellationMonitor);
+                notifyLocationUpdate(filteredLocation, constellationMonitor);
 
                 Log.d(TAG, "Location update: " + filteredLocation.getLatitude() + "," + filteredLocation.getLongitude() +
                         " accuracy=" + filteredLocation.getAccuracy());

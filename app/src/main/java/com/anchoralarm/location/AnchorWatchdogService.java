@@ -27,6 +27,7 @@ import androidx.core.app.NotificationCompat;
 
 import com.anchoralarm.MainActivity;
 import com.anchoralarm.R;
+import com.anchoralarm.repository.LocationTrackRepository;
 
 /**
  * Handles anchor drift detection and alarm management
@@ -50,6 +51,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
     private Runnable alarmStopRunnable;
     private Runnable vibrationStopRunnable;
     private final IBinder binder = new AnchorWatchdogService.AnchorWatchdogBinder();
+    private LocationTrackRepository trackRepository;
 
     public AnchorWatchdogService() {
     }
@@ -66,6 +68,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
             return; // No anchor set yet
         }
 
+        trackRepository.addLocationTrack(filteredLocation);
         float distance = filteredLocation.distanceTo(anchorLocation);
         if (distance > driftRadius) {
             if (!isAlarmActive) {
@@ -293,6 +296,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
     public void onCreate() {
         super.onCreate();
         acquireWakeLock();
+        trackRepository = new LocationTrackRepository(this);
         Log.i(TAG, "AnchorWatchdogService created");
     }
 

@@ -3,443 +3,341 @@ package com.anchoralarm.location.filter;
 import android.location.Location;
 import android.util.Log;
 
+import java.util.Locale;
+
 /**
- * Kalman Filter implementation for GPS location smoothing and noise reduction.
- * <p>
- * This filter uses a 4-state model: [latitude, longitude, velocity_lat, velocity_lon]
- * to predict and correct GPS positions, significantly reducing noise and improving accuracy.
- * <p>
- * Key Features:
- * - Adaptive noise adjustment based on GPS accuracy
- * - Velocity estimation for better prediction
- * - Reset capability for anchor setting scenarios
- * - Position uncertainty tracking
- * <p>
- * Expected Performance:
- * - 70-80% reduction in GPS jitter
- * - Processing time: <5ms per update
- * - Memory usage: <1MB
+ * Kalman Filter for GPS smoothing using a 2D constant-velocity model in a local tangent plane (meters).
+ * State: [north (m), east (m), vel_north (m/s), vel_east (m/s)]
  */
 public class KalmanLocationFilter {
 
     private static final String TAG = "KalmanLocationFilter";
 
-    // State vector indices
-    private static final int STATE_LAT = 0;
-    private static final int STATE_LON = 1;
-    private static final int STATE_VEL_LAT = 2;
-    private static final int STATE_VEL_LON = 3;
+    // State indices (internally meters; original names kept for compatibility)
+    private static final int STATE_LAT = 0;      // northing (m)
+    private static final int STATE_LON = 1;      // easting (m)
+    private static final int STATE_VEL_LAT = 2;  // north velocity (m/s)
+    private static final int STATE_VEL_LON = 3;  // east velocity (m/s)
     private static final int STATE_SIZE = 4;
 
-    // Configuration constants
-    private static final double DEFAULT_PROCESS_NOISE = 0.1;    // Motion model uncertainty
-    private static final double MIN_ACCURACY = 1.0;             // Minimum GPS accuracy (meters)
-    private static final double MAX_ACCURACY = 100.0;           // Maximum GPS accuracy (meters)
-    private static final double VELOCITY_DECAY = 0.95;          // Velocity decay factor
-    private static final double LAT_LON_TO_METERS = 111000.0;   // Approximate conversion
+    // Configuration
+    private static final double ACCELERATION_NOISE = 1.0;   // m/s^2 process noise spectral density
+    private static final double MIN_ACCURACY = 1.0;         // m
+    private static final double MAX_ACCURACY = 100.0;       // m
+    private static final double MAX_TIME_GAP_S = 30.0;      // s
+    private static final double VELOCITY_DAMPING = 0.0;     // optional small damping (e.g. 0.02); 0 = none
+    private static final double EARTH_RADIUS = 6378137.0;   // meters (WGS84)
 
-    // Filter state
-    private double[] stateVector;           // [lat, lon, vel_lat, vel_lon]
-    private double[][] covarianceMatrix;    // 4x4 uncertainty matrix
-    private double[][] processNoiseMatrix;  // 4x4 process noise matrix
-    private double measurementNoise;        // GPS measurement noise
+    // State & covariance
+    private final double[] x = new double[STATE_SIZE];          // state vector
+    private final double[][] P = new double[STATE_SIZE][STATE_SIZE]; // covariance matrix
 
-    // Timing
-    private long lastUpdateTime;
-    private boolean isInitialized;
+    // Reused buffers to avoid allocations
+    private final double[][] K = new double[STATE_SIZE][2];     // Kalman gain
+    private final double[][] Pcopy = new double[STATE_SIZE][STATE_SIZE];
+    private final double[] innovation = new double[2];
 
-    // Statistics
-    private int updateCount;
-    private double totalAccuracyImprovement;
+    // Origin (radians)
+    private boolean originSet = false;
+    private double originLatRad;
+    private double originLonRad;
+    private double cosOriginLat;
+
+    // Timing & stats
+    private long lastUpdateTimeMs = 0L;
+    private boolean initialized = false;
+    private int updateCount = 0;
+    private double totalAccuracyImprovement = 0.0;
 
     public KalmanLocationFilter() {
-        initializeMatrices();
         reset();
     }
 
-    /**
-     * Initialize all matrices with appropriate sizes and default values
-     */
-    private void initializeMatrices() {
-        stateVector = new double[STATE_SIZE];
-        covarianceMatrix = new double[STATE_SIZE][STATE_SIZE];
-        processNoiseMatrix = new double[STATE_SIZE][STATE_SIZE];
-
-        // Initialize process noise matrix
-        // Position states have lower process noise than velocity states
-        processNoiseMatrix[STATE_LAT][STATE_LAT] = DEFAULT_PROCESS_NOISE;
-        processNoiseMatrix[STATE_LON][STATE_LON] = DEFAULT_PROCESS_NOISE;
-        processNoiseMatrix[STATE_VEL_LAT][STATE_VEL_LAT] = DEFAULT_PROCESS_NOISE * 2;
-        processNoiseMatrix[STATE_VEL_LON][STATE_VEL_LON] = DEFAULT_PROCESS_NOISE * 2;
-    }
-
-    /**
-     * Reset the filter state - used when setting a new anchor or after significant gaps
-     */
     public void reset() {
-        isInitialized = false;
-        lastUpdateTime = 0;
+        initialized = false;
+        originSet = false;
+        lastUpdateTimeMs = 0L;
         updateCount = 0;
-        totalAccuracyImprovement = 0;
-
-        // Reset state vector
+        totalAccuracyImprovement = 0.0;
         for (int i = 0; i < STATE_SIZE; i++) {
-            stateVector[i] = 0;
-        }
-
-        // Reset covariance matrix with high initial uncertainty
-        for (int i = 0; i < STATE_SIZE; i++) {
+            x[i] = 0.0;
             for (int j = 0; j < STATE_SIZE; j++) {
-                if (i == j) {
-                    // High initial uncertainty for positions, lower for velocities
-                    covarianceMatrix[i][j] = (i < 2) ? 1000.0 : 10.0;
-                } else {
-                    covarianceMatrix[i][j] = 0;
-                }
+                P[i][j] = (i == j) ? (i < 2 ? 1e4 : 1e2) : 0.0; // large pos, moderate vel uncertainty
             }
         }
-
         Log.d(TAG, "Kalman filter reset");
     }
 
-    /**
-     * Main filter method - processes a new GPS location and returns filtered result
-     *
-     * @param newLocation Raw GPS location
-     * @param accuracy    GPS accuracy in meters
-     * @return Filtered location with improved accuracy
-     */
-    public Location filter(Location newLocation, float accuracy) {
-        if (newLocation == null) {
-            return null;
+    public Location filter(Location raw, float reportedAccuracyMeters) {
+        if (raw == null) return null;
+
+        long now = System.currentTimeMillis();
+        float acc = (reportedAccuracyMeters > 0) ? reportedAccuracyMeters : raw.getAccuracy();
+        acc = clamp(acc, (float) MIN_ACCURACY, (float) MAX_ACCURACY);
+
+        if (!initialized) {
+            initializeOrigin(raw);
+            initializeState(raw, acc, now);
+            return buildLocation(raw, acc);
         }
 
-        long currentTime = System.currentTimeMillis();
-
-        // Initialize filter with first location
-        if (!isInitialized) {
-            initializeWithLocation(newLocation, accuracy, currentTime);
-            return createFilteredLocation(newLocation);
+        double dt = (now - lastUpdateTimeMs) / 1000.0;
+        if (dt <= 0 || dt > MAX_TIME_GAP_S) {
+            Log.w(TAG, "Time gap " + dt + "s -> reinitialize");
+            reset();
+            initializeOrigin(raw);
+            initializeState(raw, acc, now);
+            return buildLocation(raw, acc);
         }
 
-        // Calculate time delta in seconds
-        double deltaTime = (currentTime - lastUpdateTime) / 1000.0;
-        if (deltaTime <= 0 || deltaTime > 30.0) {
-            // Skip update if time delta is invalid or too large (likely app was paused)
-            Log.w(TAG, "Invalid time delta: " + deltaTime + "s, skipping update");
-            lastUpdateTime = currentTime;
-            return createFilteredLocation(newLocation);
-        }
-
-        // Prediction step
-        predict(deltaTime);
-
-        // Update step
-        update(newLocation, accuracy);
-
-        lastUpdateTime = currentTime;
+        predict(dt);
+        update(raw, acc);
+        lastUpdateTimeMs = now;
         updateCount++;
 
-        // Calculate accuracy improvement for statistics
-        double originalAccuracy = accuracy;
-        double filteredAccuracy = getPredictedAccuracy();
-        if (originalAccuracy > filteredAccuracy) {
-            totalAccuracyImprovement += (originalAccuracy - filteredAccuracy);
+        float filteredAcc = getPredictedAccuracy();
+        if (acc > filteredAcc) {
+            totalAccuracyImprovement += (acc - filteredAcc);
+        }
+        return buildLocation(raw, filteredAcc);
+    }
+
+    private void initializeOrigin(Location loc) {
+        if (originSet) return;
+        originLatRad = Math.toRadians(loc.getLatitude());
+        originLonRad = Math.toRadians(loc.getLongitude());
+        cosOriginLat = Math.cos(originLatRad);
+        originSet = true;
+    }
+
+    private void initializeState(Location loc, float accuracy, long nowMs) {
+        double[] ne = toLocalNE(loc.getLatitude(), loc.getLongitude());
+        x[STATE_LAT] = ne[0]; // north
+        x[STATE_LON] = ne[1]; // east
+        x[STATE_VEL_LAT] = 0.0;
+        x[STATE_VEL_LON] = 0.0;
+
+        double var = accuracy * accuracy;
+        P[STATE_LAT][STATE_LAT] = var;
+        P[STATE_LON][STATE_LON] = var;
+        P[STATE_VEL_LAT][STATE_VEL_LAT] = 25.0; // (5 m/s)^2 initial vel uncertainty
+        P[STATE_VEL_LON][STATE_VEL_LON] = 25.0;
+
+        lastUpdateTimeMs = nowMs;
+        initialized = true;
+        Log.d(TAG, String.format("Initialized at lat=%.6f lon=%.6f acc=%.1fm",
+                loc.getLatitude(), loc.getLongitude(), accuracy));
+    }
+
+    private void predict(double dt) {
+        // Apply velocity damping if configured
+        double velDamp = (VELOCITY_DAMPING > 0) ? Math.max(0.0, 1.0 - VELOCITY_DAMPING * dt) : 1.0;
+
+        // State prediction
+        x[STATE_LAT] += x[STATE_VEL_LAT] * dt;
+        x[STATE_LON] += x[STATE_VEL_LON] * dt;
+        x[STATE_VEL_LAT] *= velDamp;
+        x[STATE_VEL_LON] *= velDamp;
+
+        // Copy P -> Pcopy (original before prediction)
+        for (int i = 0; i < STATE_SIZE; i++) {
+            System.arraycopy(P[i], 0, Pcopy[i], 0, STATE_SIZE);
         }
 
-        return createFilteredLocation(newLocation);
+        // Predict covariance for constant velocity (manual expansion)
+        // Using original Pcopy values
+        double dt2 = dt * dt;
+        double dt3 = dt2 * dt;
+        double dt4 = dt2 * dt2;
+        double q = ACCELERATION_NOISE;
+
+        // For readability assign indices
+        int NX = STATE_LAT;
+        int EX = STATE_LON;
+        int NV = STATE_VEL_LAT;
+        int EV = STATE_VEL_LON;
+
+        // Position/velocity cross-terms
+        // Northing
+        P[NX][NX] = Pcopy[NX][NX] + dt * (Pcopy[NX][NV] + Pcopy[NV][NX]) + dt2 * Pcopy[NV][NV];
+        P[NX][NV] = Pcopy[NX][NV] + dt * Pcopy[NV][NV];
+        P[NV][NX] = P[NX][NV];
+        P[NV][NV] = Pcopy[NV][NV];
+
+        // Easting
+        P[EX][EX] = Pcopy[EX][EX] + dt * (Pcopy[EX][EV] + Pcopy[EV][EX]) + dt2 * Pcopy[EV][EV];
+        P[EX][EV] = Pcopy[EX][EV] + dt * Pcopy[EV][EV];
+        P[EV][EX] = P[EX][EV];
+        P[EV][EV] = Pcopy[EV][EV];
+
+        // Mixed north/east blocks
+        P[NX][EX] = Pcopy[NX][EX] + dt * (Pcopy[NX][EV] + Pcopy[NV][EX]) + dt2 * Pcopy[NV][EV];
+        P[EX][NX] = P[NX][EX];
+
+        P[NX][EV] = Pcopy[NX][EV] + dt * Pcopy[NV][EV];
+        P[EV][NX] = P[NX][EV];
+
+        P[EX][NV] = Pcopy[EX][NV] + dt * Pcopy[EV][NV];
+        P[NV][EX] = P[EX][NV];
+
+        // Velocity cross (NV,EV) unchanged
+        // Add process noise Q blocks (north & east)
+        double q11 = dt4 * q / 4.0;
+        double q12 = dt3 * q / 2.0;
+        double q22 = dt2 * q;
+
+        // North block
+        P[NX][NX] += q11;
+        P[NX][NV] += q12;
+        P[NV][NX] += q12;
+        P[NV][NV] += q22;
+
+        // East block
+        P[EX][EX] += q11;
+        P[EX][EV] += q12;
+        P[EV][EX] += q12;
+        P[EV][EV] += q22;
+
+        // (Optional) ensure symmetry (small numerical corrections)
+        symmetrize(P);
     }
 
-    /**
-     * Initialize the filter with the first GPS location
-     */
-    private void initializeWithLocation(Location location, float accuracy, long currentTime) {
-        stateVector[STATE_LAT] = location.getLatitude();
-        stateVector[STATE_LON] = location.getLongitude();
-        stateVector[STATE_VEL_LAT] = 0;
-        stateVector[STATE_VEL_LON] = 0;
+    private void update(Location meas, float accuracy) {
+        double[] ne = toLocalNE(meas.getLatitude(), meas.getLongitude());
+        double measNorth = ne[0];
+        double measEast = ne[1];
 
-        // Set initial covariance based on GPS accuracy
-        double initialUncertainty = Math.max(accuracy, MIN_ACCURACY);
-        covarianceMatrix[STATE_LAT][STATE_LAT] = initialUncertainty / LAT_LON_TO_METERS;
-        covarianceMatrix[STATE_LON][STATE_LON] = initialUncertainty / LAT_LON_TO_METERS;
+        // Innovation (z - Hx); H observes north & east directly
+        innovation[0] = measNorth - x[STATE_LAT];
+        innovation[1] = measEast - x[STATE_LON];
 
-        // Set measurement noise based on accuracy
-        measurementNoise = Math.max(Math.min(accuracy, MAX_ACCURACY), MIN_ACCURACY) / LAT_LON_TO_METERS;
+        double Rvar = accuracy * accuracy;
 
-        lastUpdateTime = currentTime;
-        isInitialized = true;
+        // Innovation covariance S = HPH^T + R (2x2)
+        double S00 = P[STATE_LAT][STATE_LAT] + Rvar;
+        double S01 = P[STATE_LAT][STATE_LON];
+        double S10 = P[STATE_LON][STATE_LAT];
+        double S11 = P[STATE_LON][STATE_LON] + Rvar;
 
-        Log.d(TAG, String.format("Kalman filter initialized at %.6f, %.6f with accuracy %.1fm",
-                location.getLatitude(), location.getLongitude(), accuracy));
-    }
+        double det = S00 * S11 - S01 * S10;
+        if (Math.abs(det) < 1e-12) {
+            Log.w(TAG, "Singular innovation covariance, skipping update");
+            return;
+        }
+        double invDet = 1.0 / det;
 
-    /**
-     * Prediction step - predict next state based on motion model
-     */
-    private void predict(double deltaTime) {
-        // State transition matrix (constant velocity model)
-        double[][] transitionMatrix = {
-                {1, 0, deltaTime, 0},
-                {0, 1, 0, deltaTime},
-                {0, 0, VELOCITY_DECAY, 0},  // Velocity decays over time
-                {0, 0, 0, VELOCITY_DECAY}
-        };
+        // Inverse S
+        double iS00 = S11 * invDet;
+        double iS01 = -S01 * invDet;
+        double iS10 = -S10 * invDet;
+        double iS11 = S00 * invDet;
 
-        // Predict state: x = F * x
-        double[] newState = new double[STATE_SIZE];
+        // Save P to Pcopy for covariance update
         for (int i = 0; i < STATE_SIZE; i++) {
-            newState[i] = 0;
+            System.arraycopy(P[i], 0, Pcopy[i], 0, STATE_SIZE);
+        }
+
+        // Kalman Gain K = P H^T S^-1
+        // Columns correspond to north, east
+        for (int i = 0; i < STATE_SIZE; i++) {
+            double Pi0 = Pcopy[i][STATE_LAT];
+            double Pi1 = Pcopy[i][STATE_LON];
+            K[i][0] = Pi0 * iS00 + Pi1 * iS10;
+            K[i][1] = Pi0 * iS01 + Pi1 * iS11;
+        }
+
+        // State update x = x + K * innovation
+        double in0 = innovation[0];
+        double in1 = innovation[1];
+        for (int i = 0; i < STATE_SIZE; i++) {
+            x[i] += K[i][0] * in0 + K[i][1] * in1;
+        }
+
+        // Covariance update: P = P - K * (H * Pcopy)
+        // H * Pcopy are rows 0 & 1 of Pcopy
+        for (int i = 0; i < STATE_SIZE; i++) {
+            double Ki0 = K[i][0];
+            double Ki1 = K[i][1];
             for (int j = 0; j < STATE_SIZE; j++) {
-                newState[i] += transitionMatrix[i][j] * stateVector[j];
-            }
-        }
-        stateVector = newState;
-
-        // Predict covariance: P = F * P * F^T + Q
-        double[][] newCovariance = new double[STATE_SIZE][STATE_SIZE];
-
-        // Temporary matrix for F * P
-        double[][] tempMatrix = new double[STATE_SIZE][STATE_SIZE];
-        for (int i = 0; i < STATE_SIZE; i++) {
-            for (int j = 0; j < STATE_SIZE; j++) {
-                tempMatrix[i][j] = 0;
-                for (int k = 0; k < STATE_SIZE; k++) {
-                    tempMatrix[i][j] += transitionMatrix[i][k] * covarianceMatrix[k][j];
-                }
+                P[i][j] = Pcopy[i][j] - Ki0 * Pcopy[STATE_LAT][j] - Ki1 * Pcopy[STATE_LON][j];
             }
         }
 
-        // F * P * F^T
-        for (int i = 0; i < STATE_SIZE; i++) {
-            for (int j = 0; j < STATE_SIZE; j++) {
-                newCovariance[i][j] = 0;
-                for (int k = 0; k < STATE_SIZE; k++) {
-                    newCovariance[i][j] += tempMatrix[i][k] * transitionMatrix[j][k];
-                }
-                // Add process noise
-                newCovariance[i][j] += processNoiseMatrix[i][j] * deltaTime;
-            }
-        }
-
-        covarianceMatrix = newCovariance;
+        symmetrize(P);
     }
 
-    /**
-     * Update step - correct prediction with GPS measurement
-     */
-    private void update(Location measurement, float accuracy) {
-        // Adaptive measurement noise based on GPS accuracy
-        double adaptiveNoise = Math.max(Math.min(accuracy, MAX_ACCURACY), MIN_ACCURACY) / LAT_LON_TO_METERS;
+    private Location buildLocation(Location base, float accuracy) {
+        Location out = new Location(base);
+        double[] latLon = toLatLon(x[STATE_LAT], x[STATE_LON]);
+        out.setLatitude(latLon[0]);
+        out.setLongitude(latLon[1]);
+        out.setAccuracy(accuracy);
 
-        // Measurement matrix (we observe lat and lon directly)
-        double[][] measurementMatrix = {
-                {1, 0, 0, 0},  // Latitude observation
-                {0, 1, 0, 0}   // Longitude observation
-        };
-
-        // Innovation (measurement - prediction)
-        double[] innovation = {
-                measurement.getLatitude() - stateVector[STATE_LAT],
-                measurement.getLongitude() - stateVector[STATE_LON]
-        };
-
-        // Innovation covariance: S = H * P * H^T + R
-        double[][] innovationCovariance = {
-                {covarianceMatrix[STATE_LAT][STATE_LAT] + adaptiveNoise, covarianceMatrix[STATE_LAT][STATE_LON]},
-                {covarianceMatrix[STATE_LON][STATE_LAT], covarianceMatrix[STATE_LON][STATE_LON] + adaptiveNoise}
-        };
-
-        // Kalman gain: K = P * H^T * S^-1
-        double[][] kalmanGain = calculateKalmanGain(innovationCovariance);
-
-        // Update state: x = x + K * innovation
-        for (int i = 0; i < STATE_SIZE; i++) {
-            for (int j = 0; j < 2; j++) {  // Only 2 measurements (lat, lon)
-                stateVector[i] += kalmanGain[i][j] * innovation[j];
-            }
-        }
-
-        // Update covariance: P = (I - K * H) * P
-        updateCovariance(kalmanGain, measurementMatrix);
+        double speed = Math.hypot(x[STATE_VEL_LAT], x[STATE_VEL_LON]);
+        out.setSpeed((float) speed);
+        return out;
     }
 
-    /**
-     * Calculate Kalman gain matrix
-     */
-    private double[][] calculateKalmanGain(double[][] innovationCovariance) {
-        // Invert 2x2 innovation covariance matrix
-        double det = innovationCovariance[0][0] * innovationCovariance[1][1]
-                - innovationCovariance[0][1] * innovationCovariance[1][0];
-
-        if (Math.abs(det) < 1e-10) {
-            // Matrix is singular, use identity (no update)
-            Log.w(TAG, "Innovation covariance matrix is singular");
-            return new double[STATE_SIZE][2];
-        }
-
-        double[][] invInnovationCovariance = {
-                {innovationCovariance[1][1] / det, -innovationCovariance[0][1] / det},
-                {-innovationCovariance[1][0] / det, innovationCovariance[0][0] / det}
-        };
-
-        // K = P * H^T * S^-1
-        double[][] kalmanGain = new double[STATE_SIZE][2];
-        for (int i = 0; i < STATE_SIZE; i++) {
-            for (int j = 0; j < 2; j++) {
-                kalmanGain[i][j] = 0;
-                for (int k = 0; k < 2; k++) {
-                    // P * H^T = P[:, k] since H^T selects columns 0 and 1
-                    kalmanGain[i][j] += covarianceMatrix[i][k] * invInnovationCovariance[k][j];
-                }
-            }
-        }
-
-        return kalmanGain;
+    private double[] toLocalNE(double latDeg, double lonDeg) {
+        double latRad = Math.toRadians(latDeg);
+        double lonRad = Math.toRadians(lonDeg);
+        double dLat = latRad - originLatRad;
+        double dLon = lonRad - originLonRad;
+        double north = dLat * EARTH_RADIUS;
+        double east = dLon * EARTH_RADIUS * cosOriginLat;
+        return new double[]{north, east};
     }
 
-    /**
-     * Update covariance matrix after measurement update
-     */
-    private void updateCovariance(double[][] kalmanGain, double[][] measurementMatrix) {
-        // Calculate (I - K * H)
-        double[][] identity = new double[STATE_SIZE][STATE_SIZE];
-        for (int i = 0; i < STATE_SIZE; i++) {
-            identity[i][i] = 1.0;
-        }
-
-        for (int i = 0; i < STATE_SIZE; i++) {
-            for (int j = 0; j < STATE_SIZE; j++) {
-                for (int k = 0; k < 2; k++) {  // measurementMatrix is 2x4
-                    identity[i][j] -= kalmanGain[i][k] * measurementMatrix[k][j];
-                }
-            }
-        }
-
-        // P = (I - K * H) * P
-        double[][] newCovariance = new double[STATE_SIZE][STATE_SIZE];
-        for (int i = 0; i < STATE_SIZE; i++) {
-            for (int j = 0; j < STATE_SIZE; j++) {
-                newCovariance[i][j] = 0;
-                for (int k = 0; k < STATE_SIZE; k++) {
-                    newCovariance[i][j] += identity[i][k] * covarianceMatrix[k][j];
-                }
-            }
-        }
-
-        covarianceMatrix = newCovariance;
+    private double[] toLatLon(double north, double east) {
+        double latRad = originLatRad + north / EARTH_RADIUS;
+        double lonRad = originLonRad + (cosOriginLat == 0 ? 0 : east / (EARTH_RADIUS * cosOriginLat));
+        return new double[]{Math.toDegrees(latRad), Math.toDegrees(lonRad)};
     }
 
-    /**
-     * Create a new Location object with filtered coordinates
-     */
-    private Location createFilteredLocation(Location originalLocation) {
-        Location filteredLocation = new Location(originalLocation);
-        filteredLocation.setLatitude(stateVector[STATE_LAT]);
-        filteredLocation.setLongitude(stateVector[STATE_LON]);
-
-        // Set improved accuracy
-        float improvedAccuracy = (float) getPredictedAccuracy();
-        filteredLocation.setAccuracy(improvedAccuracy);
-
-        // Add velocity if available
-        if (originalLocation.hasSpeed()) {
-            double speedLat = stateVector[STATE_VEL_LAT] * LAT_LON_TO_METERS;
-            double speedLon = stateVector[STATE_VEL_LON] * LAT_LON_TO_METERS;
-            double speed = Math.sqrt(speedLat * speedLat + speedLon * speedLon);
-            filteredLocation.setSpeed((float) speed);
+    private void symmetrize(double[][] M) {
+        for (int i = 0; i < STATE_SIZE; i++) {
+            for (int j = i + 1; j < STATE_SIZE; j++) {
+                double v = 0.5 * (M[i][j] + M[j][i]);
+                M[i][j] = v;
+                M[j][i] = v;
+            }
         }
-
-        return filteredLocation;
     }
 
-    /**
-     * Get the predicted accuracy based on current covariance
-     *
-     * @return Predicted accuracy in meters
-     */
+    private float clamp(float v, float min, float max) {
+        return v < min ? min : (Math.min(v, max));
+    }
+
     public float getPredictedAccuracy() {
-        if (!isInitialized) {
-            return Float.MAX_VALUE;
-        }
-
-        // Calculate position uncertainty from covariance matrix
-        double latUncertainty = Math.sqrt(covarianceMatrix[STATE_LAT][STATE_LAT]) * LAT_LON_TO_METERS;
-        double lonUncertainty = Math.sqrt(covarianceMatrix[STATE_LON][STATE_LON]) * LAT_LON_TO_METERS;
-
-        // Return the larger uncertainty as the accuracy estimate
-        return (float) Math.max(latUncertainty, lonUncertainty);
+        if (!initialized) return Float.MAX_VALUE;
+        double varNorth = P[STATE_LAT][STATE_LAT];
+        double varEast = P[STATE_LON][STATE_LON];
+        return (float) Math.sqrt(Math.max(varNorth, varEast));
     }
 
-    /**
-     * Get the current estimated velocity in m/s
-     *
-     * @return Velocity magnitude in m/s
-     */
     public float getEstimatedSpeed() {
-        if (!isInitialized) {
-            return 0f;
-        }
-
-        double speedLat = stateVector[STATE_VEL_LAT] * LAT_LON_TO_METERS;
-        double speedLon = stateVector[STATE_VEL_LON] * LAT_LON_TO_METERS;
-        return (float) Math.sqrt(speedLat * speedLat + speedLon * speedLon);
+        if (!initialized) return 0f;
+        return (float) Math.hypot(x[STATE_VEL_LAT], x[STATE_VEL_LON]);
     }
 
-    /**
-     * Get filter statistics
-     */
     public FilterStatistics getStatistics() {
-        double averageImprovement = updateCount > 0 ? totalAccuracyImprovement / updateCount : 0;
+        double avgImprovement = updateCount > 0 ? (totalAccuracyImprovement / updateCount) : 0.0;
         return new FilterStatistics(
-                isInitialized,
+                initialized,
                 updateCount,
-                (float) averageImprovement,
+                (float) avgImprovement,
                 getPredictedAccuracy(),
                 getEstimatedSpeed()
         );
     }
 
-    /**
-     * Check if the filter is properly initialized and working
-     */
-    public boolean isInitialized() {
-        return isInitialized;
-    }
-
-    /**
-     * Get current filtered position
-     */
-    public double[] getCurrentPosition() {
-        if (!isInitialized) {
-            return null;
-        }
-        return new double[]{stateVector[STATE_LAT], stateVector[STATE_LON]};
-    }
-
-    /**
-     * Statistics class for monitoring filter performance
-     */
-    public static class FilterStatistics {
-        public final boolean isInitialized;
-        public final int updateCount;
-        public final float averageAccuracyImprovement;
-        public final float currentAccuracy;
-        public final float estimatedSpeed;
-
-        public FilterStatistics(boolean isInitialized, int updateCount,
-                                float averageAccuracyImprovement, float currentAccuracy,
-                                float estimatedSpeed) {
-            this.isInitialized = isInitialized;
-            this.updateCount = updateCount;
-            this.averageAccuracyImprovement = averageAccuracyImprovement;
-            this.currentAccuracy = currentAccuracy;
-            this.estimatedSpeed = estimatedSpeed;
-        }
+    public record FilterStatistics(boolean isInitialized, int updateCount,
+                                   float averageAccuracyImprovement, float currentAccuracy,
+                                   float estimatedSpeed) {
 
         @Override
         public String toString() {
-            return String.format("FilterStats{init=%b, updates=%d, avgImprovement=%.1fm, accuracy=%.1fm, speed=%.1fm/s}",
+            return String.format(Locale.ENGLISH, "FilterStats{init=%b, updates=%d, avgImprovement=%.2fm, accuracy=%.2fm, speed=%.2fm/s}",
                     isInitialized, updateCount, averageAccuracyImprovement, currentAccuracy, estimatedSpeed);
         }
     }
