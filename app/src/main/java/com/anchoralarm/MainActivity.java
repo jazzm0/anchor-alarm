@@ -62,6 +62,8 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
     private float anchorDepth;
     private float chainLength;
     private float driftRadius;
+    private EditText anchorDepthInput;
+    private EditText chainLengthInput;
     private TextView statusText;
     private TextView satelliteCountText;
     private TextView accuracyText;
@@ -116,18 +118,47 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
             if (locationService != null) {
                 locationService.addListener(watchdogService);
             }
+            // Register alarm state listener
+            watchdogService.addAlarmStateListener(alarmStateListener);
+            // Initialize current state
+            setInputsReadOnly(watchdogService.isAlarmActive());
             isWatchdogServiceBound = true;
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            if (locationService != null && watchdogService != null) {
-                locationService.removeListener(watchdogService);
+            if (watchdogService != null) {
+                watchdogService.removeAlarmStateListener(alarmStateListener);
+                if (locationService != null) {
+                    locationService.removeListener(watchdogService);
+                }
             }
             watchdogService = null;
             isWatchdogServiceBound = false;
+            // Re-enable inputs if service gone
+            setInputsReadOnly(false);
         }
     };
+
+    private final AnchorWatchdogService.AlarmStateListener alarmStateListener =
+            active -> runOnUiThread(() -> setInputsReadOnly(active));
+
+    private void setInputsReadOnly(boolean readOnly) {
+        setEditTextReadOnly(anchorDepthInput, readOnly);
+        setEditTextReadOnly(chainLengthInput, readOnly);
+    }
+
+    private void setEditTextReadOnly(EditText editText, boolean readOnly) {
+        if (editText == null) return;
+        editText.setEnabled(!readOnly);
+        editText.setFocusable(!readOnly);
+        editText.setFocusableInTouchMode(!readOnly);
+        editText.setClickable(!readOnly);
+        editText.setLongClickable(!readOnly);
+        if (readOnly) {
+            editText.clearFocus();
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -139,8 +170,8 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
         Button toggleAnchorButton = findViewById(R.id.toggleAnchorButton);
-        EditText anchorDepthInput = findViewById(R.id.anchorDepthInput);
-        EditText chainLengthInput = findViewById(R.id.chainLengthInput);
+        anchorDepthInput = findViewById(R.id.anchorDepthInput);
+        chainLengthInput = findViewById(R.id.chainLengthInput);
         statusText = findViewById(R.id.statusText);
         satelliteCountText = findViewById(R.id.satelliteCount);
         accuracyText = findViewById(R.id.accuracy);
@@ -163,7 +194,7 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
             // Show saved values in input fields
             anchorDepthInput.setText(String.valueOf(anchorDepth));
             chainLengthInput.setText(String.valueOf(chainLength));
-            
+
             // Restart watchdog service with saved anchor
             startWatchdogService();
             bindToWatchdogService();
@@ -253,6 +284,7 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
         if (isWatchdogServiceBound) {
             if (watchdogService != null) {
                 locationService.removeListener(watchdogService);
+                watchdogService.removeAlarmStateListener(alarmStateListener);
             }
             unbindService(watchdogServiceConnection);
             isWatchdogServiceBound = false;
@@ -503,6 +535,7 @@ public class MainActivity extends AppCompatActivity implements LocationUpdateLis
 
     private void stopWatchdogService() {
         unbindFromWatchdogService();
+        setInputsReadOnly(false);
         Intent intent = new Intent(this, AnchorWatchdogService.class);
         stopService(intent);
     }

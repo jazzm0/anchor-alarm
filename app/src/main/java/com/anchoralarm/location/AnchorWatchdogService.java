@@ -30,6 +30,9 @@ import com.anchoralarm.MainActivity;
 import com.anchoralarm.R;
 import com.anchoralarm.repository.LocationTrackRepository;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Handles anchor drift detection and alarm management
  * Receives location updates from LocationService and triggers alarms when drift is detected
@@ -45,6 +48,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
     private Location anchorLocation;
     private float driftRadius;
+    private volatile boolean isAlarmTriggered = false;
     private volatile boolean isAlarmActive = false;
 
     // Alarm components
@@ -53,6 +57,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
     private PowerManager.WakeLock wakeLock;
     private final IBinder binder = new AnchorWatchdogService.AnchorWatchdogBinder();
     private LocationTrackRepository trackRepository;
+    private final List<AlarmStateListener> alarmStateListeners = new ArrayList<>();
 
     public AnchorWatchdogService() {
     }
@@ -60,6 +65,25 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
     public class AnchorWatchdogBinder extends Binder {
         public AnchorWatchdogService getService() {
             return AnchorWatchdogService.this;
+        }
+    }
+
+    public interface AlarmStateListener {
+        void onAlarmStateChanged(boolean active);
+    }
+
+    public void addAlarmStateListener(AlarmStateListener l) {
+        if (l == null) return;
+        synchronized (alarmStateListeners) {
+            if (!alarmStateListeners.contains(l)) {
+                alarmStateListeners.add(l);
+            }
+        }
+    }
+
+    public void removeAlarmStateListener(AlarmStateListener l) {
+        synchronized (alarmStateListeners) {
+            alarmStateListeners.remove(l);
         }
     }
 
@@ -72,12 +96,12 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
         trackRepository.addLocationTrack(filteredLocation);
         float distance = filteredLocation.distanceTo(anchorLocation);
         if (distance > driftRadius) {
-            if (!isAlarmActive) {
+            if (!isAlarmTriggered) {
                 Log.i(TAG, "Drift detected: " + distance + "m > " + driftRadius + "m");
                 triggerAlarm();
             }
         } else {
-            if (isAlarmActive) {
+            if (isAlarmTriggered) {
                 Log.i(TAG, "Back within radius: " + distance + "m <= " + driftRadius + "m");
                 stopAllAlarms();
             }
@@ -86,7 +110,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
     @Override
     public void onProviderStatusChange(boolean enabled) {
-        if (!enabled && !isAlarmActive) {
+        if (!enabled && !isAlarmTriggered) {
             // GPS disabled - trigger alarm
             Log.w(TAG, "GPS provider disabled - triggering alarm");
             triggerAlarm();
@@ -112,10 +136,11 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
     }
 
     private void triggerAlarm() {
-        isAlarmActive = true;
+        isAlarmTriggered = true;
         playAlarmSound();
         triggerVibration();
         showAlarmNotification();
+        notifyAlarmStateChanged();
         Log.w(TAG, "Alarm triggered");
     }
 
@@ -248,7 +273,8 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
         stopAlarmSound();
         stopVibration();
         clearAlarmNotification();
-        isAlarmActive = false;
+        isAlarmTriggered = false;
+        notifyAlarmStateChanged();
         Log.i(TAG, "All alarms stopped");
     }
 
@@ -256,9 +282,28 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
      * Clean up resources when watchdog is no longer needed
      */
     public void destroy() {
+        this.isAlarmActive = false;
         stopAllAlarms();
         releaseWakeLock();
         Log.i(TAG, "AnchorWatchdog destroyed");
+    }
+
+    private void notifyAlarmStateChanged() {
+        boolean active = isAlarmActive;
+        List<AlarmStateListener> copy;
+        synchronized (alarmStateListeners) {
+            copy = new ArrayList<>(alarmStateListeners);
+        }
+        for (AlarmStateListener l : copy) {
+            try {
+                l.onAlarmStateChanged(active);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    public boolean isAlarmActive() {
+        return isAlarmActive;
     }
 
     private Notification buildForegroundNotification() {
@@ -293,8 +338,8 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
         this.anchorLocation = new Location("");
         this.anchorLocation.setLatitude(anchorLat);
         this.anchorLocation.setLongitude(anchorLon);
-
-        if (isAlarmActive) {
+        this.isAlarmActive = true;
+        if (isAlarmTriggered) {
             stopAllAlarms();
         }
 
