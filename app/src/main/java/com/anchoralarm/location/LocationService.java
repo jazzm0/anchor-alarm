@@ -11,11 +11,13 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Binder;
+import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import com.anchoralarm.MainActivity;
 import com.anchoralarm.R;
@@ -24,6 +26,7 @@ import com.anchoralarm.location.filter.OutlierDetector;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 /**
  * Standalone LocationService that provides filtered GPS location data to registered listeners
@@ -125,21 +128,22 @@ public class LocationService extends Service {
         locationListener = new LocationListener() {
             @Override
             public void onLocationChanged(@NonNull Location currentLocation) {
-                // Apply outlier detection
-                if (!isNull(previousLocation) && outlierDetector.isOutlier(currentLocation, previousLocation, currentLocation.getTime() - previousLocation.getTime())) {
+                if (previousLocation != null &&
+                        outlierDetector.isOutlier(currentLocation, previousLocation,
+                                currentLocation.getTime() - previousLocation.getTime())) {
                     Log.d(TAG, "Location rejected as outlier");
-                    return; // Reject outlier
+                    return;
                 }
                 previousLocation = currentLocation;
 
-                // Apply Kalman filtering
-                Location filteredLocation = kalmanLocationFilter.filter(currentLocation, currentLocation.getAccuracy());
+                Location filteredLocation =
+                        kalmanLocationFilter.filter(currentLocation, currentLocation.getAccuracy());
+
                 Log.d(TAG, "Filter statistics" + kalmanLocationFilter.getStatistics());
-                // Notify all listeners
                 notifyLocationUpdate(filteredLocation, constellationMonitor);
 
-                Log.d(TAG, "Location update: " + filteredLocation.getLatitude() + "," + filteredLocation.getLongitude() +
-                        " accuracy=" + filteredLocation.getAccuracy());
+                Log.d(TAG, "Location update: " + filteredLocation.getLatitude() + "," +
+                        filteredLocation.getLongitude() + " accuracy=" + filteredLocation.getAccuracy());
             }
 
             @Override
@@ -155,26 +159,35 @@ public class LocationService extends Service {
             }
         };
 
-        // Start GPS location updates
-        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+
             locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
                     LOCATION_UPDATE_MIN_TIME,
-                    0,
-                    locationListener);
+                    0f,
+                    locationListener
+            );
 
-            // Also use network provider if available
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                         LocationManager.NETWORK_PROVIDER,
-                        10000,
-                        0,
-                        locationListener);
+                        10000L,
+                        0f,
+                        locationListener
+                );
             }
 
-            // Register GNSS status callback
+            // Updated: use Executor-based callback on API 30+ to avoid deprecated call
             if (gnssStatusCallback != null) {
-                locationManager.registerGnssStatusCallback(gnssStatusCallback);
+                boolean registered = false;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    Executor mainExec = ContextCompat.getMainExecutor(this);
+                    registered = locationManager.registerGnssStatusCallback(mainExec, gnssStatusCallback);
+                } else {
+                    registered = locationManager.registerGnssStatusCallback(gnssStatusCallback);
+                }
+                Log.i(TAG, "GNSS status callback registered=" + registered);
             }
 
             Log.i(TAG, "Location updates started");

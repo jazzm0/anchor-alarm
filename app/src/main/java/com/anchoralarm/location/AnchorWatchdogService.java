@@ -15,11 +15,14 @@ import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.os.VibratorManager;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
@@ -36,6 +39,9 @@ import com.anchoralarm.repository.LocationTrackRepository;
 public class AnchorWatchdogService extends Service implements LocationUpdateListener {
 
     public static final String ANCHOR_WATCHDOG_CHANNEL = "ANCHOR_WATCHDOG_CHANNEL";
+    private static final int FOREGROUND_NOTIFICATION_ID = 2;
+    private static final int ALARM_NOTIFICATION_ID = 3;
+
 
     private static final String TAG = "AnchorWatchdog";
 
@@ -47,7 +53,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
     private MediaPlayer alarmMediaPlayer;
     private Vibrator vibrator;
     private PowerManager.WakeLock wakeLock;
-    private Handler alarmHandler = new Handler();
+    private Handler alarmHandler = new Handler(Looper.getMainLooper());
     private Runnable alarmStopRunnable;
     private Runnable vibrationStopRunnable;
     private final IBinder binder = new AnchorWatchdogService.AnchorWatchdogBinder();
@@ -79,7 +85,6 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
             if (isAlarmActive) {
                 Log.i(TAG, "Back within radius: " + distance + "m <= " + driftRadius + "m");
                 stopAllAlarms();
-                isAlarmActive = false;
                 clearAlarmNotification();
             }
         }
@@ -167,13 +172,21 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
         try {
             stopVibration();
 
-            vibrator = (Vibrator) this.getSystemService(Context.VIBRATOR_SERVICE);
+            // Obtain vibrator with backward compatibility
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                VibratorManager vm = (VibratorManager) getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+                if (vm != null) {
+                    vibrator = vm.getDefaultVibrator();
+                }
+            } else {
+                vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            }
+
             if (!isNull(vibrator) && vibrator.hasVibrator()) {
                 long[] pattern = {0, 1000, 500, 1000, 500, 1000};
                 VibrationEffect effect = VibrationEffect.createWaveform(pattern, 0);
                 vibrator.vibrate(effect);
 
-                // Auto-stop vibration after 30 seconds
                 if (!isNull(vibrationStopRunnable)) {
                     alarmHandler.removeCallbacks(vibrationStopRunnable);
                 }
@@ -187,7 +200,8 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
     private void showAlarmNotification() {
         Intent notificationIntent = new Intent(this, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+                this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, ANCHOR_WATCHDOG_CHANNEL)
                 .setContentTitle("Anchor Alarm")
@@ -199,14 +213,16 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
 
-        NotificationManager notificationManager = (NotificationManager) this.getSystemService(Context.NOTIFICATION_SERVICE);
-        notificationManager.notify(2, builder.build());
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) {
+            nm.notify(ALARM_NOTIFICATION_ID, builder.build());
+        }
     }
 
     private void clearAlarmNotification() {
-        NotificationManager notificationManager = (NotificationManager) this.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (notificationManager != null) {
-            notificationManager.cancel(2);
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) {
+            nm.cancel(ALARM_NOTIFICATION_ID);
         }
     }
 
@@ -244,7 +260,6 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
                 alarmHandler.removeCallbacks(vibrationStopRunnable);
                 vibrationStopRunnable = null;
             }
-
             if (!isNull(vibrator)) {
                 vibrator.cancel();
                 vibrator = null;
@@ -262,6 +277,7 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
         stopAlarmSound();
         stopVibration();
         clearAlarmNotification();
+        isAlarmActive = false;
         Log.i(TAG, "All alarms stopped");
     }
 
@@ -282,13 +298,15 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
     private Notification buildForegroundNotification() {
         Intent notificationIntent = new Intent(this, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, 1, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+                this, 1, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
         return new NotificationCompat.Builder(this, ANCHOR_WATCHDOG_CHANNEL)
                 .setContentTitle("Anchor Watchdog Running")
                 .setContentText("Monitoring boat position")
                 .setSmallIcon(R.drawable.ic_anchor_watchdog)
                 .setContentIntent(pendingIntent)
+                .setOngoing(true)
                 .build();
     }
 
@@ -313,12 +331,11 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
         if (isAlarmActive) {
             stopAllAlarms();
-            isAlarmActive = false;
             clearAlarmNotification();
         }
 
         // Start foreground service
-        startForeground(2, buildForegroundNotification());
+        startForeground(FOREGROUND_NOTIFICATION_ID, buildForegroundNotification());
 
         Log.i(TAG, "AnchorWatchdogService started! Anchor set at " + this.anchorLocation.getLatitude() + "," + this.anchorLocation.getLongitude() + " with radius " + this.driftRadius + "m");
 
