@@ -1,5 +1,7 @@
 package com.anchoralarm.repository;
 
+import static java.util.Objects.isNull;
+
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.location.Location;
@@ -24,18 +26,16 @@ public class LocationTrackRepository {
         this.prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 
-    public void addLocationTrack(Location location, Location anchorLocation) {
-        if (location == null || anchorLocation == null) return;
+    public void addLocationTrack(Location location) {
+        if (isNull(location)) return;
 
-        float distance = location.distanceTo(anchorLocation);
         float accuracy = location.hasAccuracy() ? location.getAccuracy() : 0.0f;
-        
+
         LocationTrack track = new LocationTrack(
                 System.currentTimeMillis(),
                 location.getLatitude(),
                 location.getLongitude(),
-                accuracy,
-                distance
+                accuracy
         );
 
         List<LocationTrack> tracks = getAllTracks();
@@ -61,8 +61,7 @@ public class LocationTrackRepository {
                         jsonTrack.getLong("timestamp"),
                         jsonTrack.getDouble("latitude"),
                         jsonTrack.getDouble("longitude"),
-                        (float) jsonTrack.getDouble("accuracy"),
-                        (float) jsonTrack.getDouble("distanceFromAnchor")
+                        (float) jsonTrack.getDouble("accuracy")
                 );
                 tracks.add(track);
             }
@@ -91,15 +90,14 @@ public class LocationTrackRepository {
 
     private void saveTracks(List<LocationTrack> tracks) {
         JSONArray jsonArray = new JSONArray();
-        
+
         for (LocationTrack track : tracks) {
             try {
                 JSONObject jsonTrack = new JSONObject();
-                jsonTrack.put("timestamp", track.getTimestamp());
-                jsonTrack.put("latitude", track.getLatitude());
-                jsonTrack.put("longitude", track.getLongitude());
-                jsonTrack.put("accuracy", track.getAccuracy());
-                jsonTrack.put("distanceFromAnchor", track.getDistanceFromAnchor());
+                jsonTrack.put("timestamp", track.timestamp());
+                jsonTrack.put("latitude", track.latitude());
+                jsonTrack.put("longitude", track.longitude());
+                jsonTrack.put("accuracy", track.accuracy());
                 jsonArray.put(jsonTrack);
             } catch (JSONException e) {
                 e.printStackTrace();

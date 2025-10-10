@@ -2,6 +2,7 @@ package com.anchoralarm;
 
 import static android.graphics.Typeface.BOLD;
 import static java.lang.Math.min;
+import static java.util.Objects.isNull;
 
 import android.content.Context;
 import android.graphics.Canvas;
@@ -13,7 +14,6 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
-import android.graphics.Path;
 import android.location.Location;
 import android.util.AttributeSet;
 import android.view.View;
@@ -27,13 +27,14 @@ import java.util.List;
 import java.util.Locale;
 
 public class SwoyRadiusView extends View implements SensorEventListener {
+
     private Paint circlePaint;
     private Paint fillPaint;
     private Paint anchorPaint;
     private Paint boatPaint;
     private Paint textPaint;
-    private Paint trackPaint;
     private Paint trackPointPaint;
+    private final Location trackLocation = new Location("track");
 
     private Location anchorLocation;
     private Location currentLocation;
@@ -107,13 +108,6 @@ public class SwoyRadiusView extends View implements SensorEventListener {
         textPaint.setTypeface(Typeface.create(Typeface.DEFAULT, BOLD));
         textPaint.setTextAlign(Paint.Align.CENTER);
 
-        // Track paint (path line)
-        trackPaint = new Paint();
-        trackPaint.setColor(Color.parseColor("#FF9800"));
-        trackPaint.setStyle(Paint.Style.STROKE);
-        trackPaint.setStrokeWidth(3f);
-        trackPaint.setAntiAlias(true);
-
         // Track point paint (small circles for track points)
         trackPointPaint = new Paint();
         trackPointPaint.setColor(Color.parseColor("#FF9800"));
@@ -169,7 +163,7 @@ public class SwoyRadiusView extends View implements SensorEventListener {
     }
 
     private float[] convertLocationToViewCoordinates(Location location, int width, int height) {
-        if (anchorLocation == null || driftRadius <= 0) {
+        if (isNull(anchorLocation) || driftRadius <= 0) {
             return new float[]{width / 2f, height / 2f};
         }
 
@@ -265,30 +259,19 @@ public class SwoyRadiusView extends View implements SensorEventListener {
         canvas.drawCircle(centerX, centerY, radius, circlePaint);
 
         // Draw track history if available
-        if (trackHistory != null && trackHistory.size() > 1) {
-            Path trackPath = new Path();
-            boolean firstPoint = true;
+        if (!isNull(trackHistory) && !trackHistory.isEmpty()) {
 
             for (LocationTrack track : trackHistory) {
-                Location trackLocation = new Location("track");
-                trackLocation.setLatitude(track.getLatitude());
-                trackLocation.setLongitude(track.getLongitude());
 
-                float[] coords = convertLocationToViewCoordinates(trackLocation, width, height);
-                
-                if (firstPoint) {
-                    trackPath.moveTo(coords[0], coords[1]);
-                    firstPoint = false;
-                } else {
-                    trackPath.lineTo(coords[0], coords[1]);
-                }
+                trackLocation.setLatitude(track.latitude());
+                trackLocation.setLongitude(track.longitude());
+
+                float[] coordinates = convertLocationToViewCoordinates(trackLocation, width, height);
 
                 // Draw small circles for track points
-                canvas.drawCircle(coords[0], coords[1], 3f, trackPointPaint);
+                canvas.drawCircle(coordinates[0], coordinates[1], 3f, trackPointPaint);
             }
 
-            // Draw the track path
-            canvas.drawPath(trackPath, trackPaint);
         }
 
         // Draw anchor at center
@@ -300,7 +283,7 @@ public class SwoyRadiusView extends View implements SensorEventListener {
         }});
 
         // Draw boat position if locations are available
-        if (anchorLocation != null && currentLocation != null) {
+        if (!isNull(anchorLocation) && !isNull(currentLocation)) {
             float boatPixelX = width * boatX;
             float boatPixelY = height * boatY;
 
