@@ -16,9 +16,7 @@ import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
-import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import android.os.PowerManager;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -47,15 +45,12 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
     private Location anchorLocation;
     private float driftRadius;
-    private boolean isAlarmActive = false;
+    private volatile boolean isAlarmActive = false;
 
     // Alarm components
     private MediaPlayer alarmMediaPlayer;
     private Vibrator vibrator;
     private PowerManager.WakeLock wakeLock;
-    private Handler alarmHandler = new Handler(Looper.getMainLooper());
-    private Runnable alarmStopRunnable;
-    private Runnable vibrationStopRunnable;
     private final IBinder binder = new AnchorWatchdogService.AnchorWatchdogBinder();
     private LocationTrackRepository trackRepository;
 
@@ -85,7 +80,6 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
             if (isAlarmActive) {
                 Log.i(TAG, "Back within radius: " + distance + "m <= " + driftRadius + "m");
                 stopAllAlarms();
-                clearAlarmNotification();
             }
         }
     }
@@ -154,14 +148,6 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
                 alarmMediaPlayer.setLooping(true);
                 alarmMediaPlayer.prepare();
                 alarmMediaPlayer.start();
-
-                // Auto-stop alarm after 5 minutes
-                if (!isNull(alarmStopRunnable)) {
-                    alarmHandler.removeCallbacks(alarmStopRunnable);
-                }
-                // Keep alarm state active but stop sound
-                alarmStopRunnable = this::stopAlarmSound;
-                alarmHandler.postDelayed(alarmStopRunnable, 5 * 60 * 1000);
             }
         } catch (Exception e) {
             Log.e(TAG, "Error playing alarm sound", e);
@@ -186,12 +172,6 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
                 long[] pattern = {0, 1000, 500, 1000, 500, 1000};
                 VibrationEffect effect = VibrationEffect.createWaveform(pattern, 0);
                 vibrator.vibrate(effect);
-
-                if (!isNull(vibrationStopRunnable)) {
-                    alarmHandler.removeCallbacks(vibrationStopRunnable);
-                }
-                vibrationStopRunnable = this::stopVibration;
-                alarmHandler.postDelayed(vibrationStopRunnable, 30000);
             }
         } catch (Exception e) {
             Log.e(TAG, "Error triggering vibration", e);
@@ -228,11 +208,6 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
     private void stopAlarmSound() {
         try {
-            if (!isNull(alarmStopRunnable) && !isNull(alarmHandler)) {
-                alarmHandler.removeCallbacks(alarmStopRunnable);
-                alarmStopRunnable = null;
-            }
-
             if (!isNull(alarmMediaPlayer)) {
                 try {
                     if (alarmMediaPlayer.isPlaying()) {
@@ -256,10 +231,6 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
     private void stopVibration() {
         try {
-            if (!isNull(vibrationStopRunnable) && !isNull(alarmHandler)) {
-                alarmHandler.removeCallbacks(vibrationStopRunnable);
-                vibrationStopRunnable = null;
-            }
             if (!isNull(vibrator)) {
                 vibrator.cancel();
                 vibrator = null;
@@ -287,12 +258,6 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
     public void destroy() {
         stopAllAlarms();
         releaseWakeLock();
-
-        if (!isNull(alarmHandler)) {
-            alarmHandler.removeCallbacksAndMessages(null);
-            alarmHandler = null;
-        }
-
         Log.i(TAG, "AnchorWatchdog destroyed");
     }
 
@@ -331,7 +296,6 @@ public class AnchorWatchdogService extends Service implements LocationUpdateList
 
         if (isAlarmActive) {
             stopAllAlarms();
-            clearAlarmNotification();
         }
 
         // Start foreground service
